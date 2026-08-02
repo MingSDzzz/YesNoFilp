@@ -156,9 +156,9 @@ namespace DecisionDisc
         private GameObject BuildBadges(Transform parent)
         {
             var page = Page("BadgesPage", parent);
-            Header(page.transform, "徽章管理", "每个自定义徽章必须分别上传 YES 面和 NO 面");
+            Header(page.transform, "徽章管理", "新徽章默认使用 YES/NO 文字面，也可分别上传图片替换");
             Button("AddBadge", page.transform, "+  创建新徽章", CreateBadge, Accent, 88);
-            badgeStatus = Label("新建后请依次上传两面图片，图片会复制到应用内部。", page.transform, 24, TextAnchor.MiddleCenter, Hex("98A2B3")); SetHeight(badgeStatus.rectTransform, 62);
+            badgeStatus = Label("默认徽章与新徽章都可直接使用；上传图片后会保存应用内部副本。", page.transform, 24, TextAnchor.MiddleCenter, Hex("98A2B3")); SetHeight(badgeStatus.rectTransform, 62);
             badgeList = ScrollContent("BadgeScroll", page.transform, 0);
             RefreshBadges();
             return page;
@@ -181,13 +181,15 @@ namespace DecisionDisc
             var page = Page("SettingsPage", parent);
             Header(page.transform, "设置", "隐私说明、随机模式与问题排查");
             Transform content = ScrollContent("SettingsScroll", page.transform, 0);
+            Text diagnosticsTitle = Label("问题排查", content, 31, TextAnchor.MiddleLeft, Accent); SetHeight(diagnosticsTitle.rectTransform, 54);
+            Text diagnosticsHint = Label("遇到问题时，先点“刷新日志预览”；需要发给开发者时，再点“导出操作日志”。", content, 24, TextAnchor.MiddleLeft, Hex("D0D5DD")); SetHeight(diagnosticsHint.rectTransform, 82);
+            Button("RefreshLog", content, "刷新操作日志预览", RefreshLogPreview, Panel, 82);
+            Button("ExportLog", content, "导出操作日志", ExportOperationLog, Accent, 88);
+            logPreview = Label("暂无操作日志。", content, 21, TextAnchor.UpperLeft, Color.white); SetHeight(logPreview.rectTransform, 260);
             CardText(content, "隐私\n当前问题、未保存结果和操作日志默认只在内存中。只有明确保存或导出才会写入文件。");
             CardText(content, "随机模式\n每个徽章可设置 0%–100% YES 基础概率。公平模式始终为 50/50；力度影响模式会围绕基础概率调整，0% 必定 NO、100% 必定 YES。");
             CardText(content, "本地存储\n历史记录和徽章图片副本保存在 Application.persistentDataPath。");
-            Button("RefreshLog", content, "刷新操作日志预览", RefreshLogPreview, Panel, 76);
-            logPreview = Label("暂无操作日志。", content, 21, TextAnchor.UpperLeft, Color.white); SetHeight(logPreview.rectTransform, 300);
-            Button("ExportLog", content, "导出操作日志", ExportOperationLog, Accent, 82);
-            CardText(content, "版本\nYesNoFilp 1.1 · 历史 JSON 格式 v1");
+            CardText(content, "版本\nYesNoFilp 1.2.1 · 历史 JSON 格式 v1");
             return page;
         }
 
@@ -217,7 +219,7 @@ namespace DecisionDisc
             Stretch((RectTransform)createBadgePanel.transform, 90, 470, 90, 470);
             var layout = createBadgePanel.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(36, 36, 36, 36); layout.spacing = 28; layout.childForceExpandHeight = false;
             Text title = Label("创建新徽章", createBadgePanel.transform, 42, TextAnchor.MiddleCenter, Color.white); SetHeight(title.rectTransform, 76);
-            Text hint = Label("先输入名称。创建后徽章会立即出现在列表中，再分别上传 YES 面和 NO 面。", createBadgePanel.transform, 26, TextAnchor.MiddleCenter, Hex("D0D5DD")); SetHeight(hint.rectTransform, 110);
+            Text hint = Label("先输入名称。创建后会立即出现在列表顶部，默认使用 YES/NO 文字面和 50% 概率。", createBadgePanel.transform, 26, TextAnchor.MiddleCenter, Hex("D0D5DD")); SetHeight(hint.rectTransform, 110);
             createBadgeNameInput = Input("请输入徽章名称", createBadgePanel.transform, 100, false);
             Button("ConfirmCreate", createBadgePanel.transform, "创建徽章", ConfirmCreateBadge, Accent, 88);
             Button("CancelCreate", createBadgePanel.transform, "取消", () => createBadgePanel.SetActive(false), Panel, 78);
@@ -319,7 +321,7 @@ namespace DecisionDisc
             }
             BadgeDefinition badge = store.CreateBadge(name);
             imageTarget = badge;
-            badgeStatus.text = "已创建“" + badge.name + "”，请分别上传 YES 面和 NO 面，补齐后才能使用。";
+            badgeStatus.text = "已创建“" + badge.name + "”，默认 YES/NO 两面、YES 概率 50%，可以直接使用。";
             UserActionLog.Add("创建徽章：" + badge.name);
             createBadgePanel.SetActive(false);
             RefreshBadges();
@@ -351,8 +353,20 @@ namespace DecisionDisc
                 Button use = Button("Use", actions, complete ? "使用此徽章" : "两面未补齐", () => SelectBadgeForUse(badge), Accent, 66);
                 use.interactable = complete;
                 Button("OpenDetail", actions, "进入设置  ›", () => OpenBadgeDetail(badge), Panel, 66);
-                Text probability = Label("YES 基础概率：" + Mathf.RoundToInt(badge.yesProbability * 100) + "%" + (complete ? "" : "  ·  请补齐两面"), card, 21, TextAnchor.MiddleLeft, complete ? Accent : Hex("F79009")); SetHeight(probability.rectTransform, 48);
+                Text probability = Label("YES 基础概率：" + Mathf.RoundToInt(badge.yesProbability * 100) + "%  ·  " + (badge.builtIn ? "默认徽章" : "可上传图片替换默认面"), card, 21, TextAnchor.MiddleLeft, Accent); SetHeight(probability.rectTransform, 48);
             }
+            badgeStatus.text = "当前共有 " + store.Badges.badges.Count + " 个徽章。新创建的徽章会显示在列表顶部。";
+            StartCoroutine(RefreshBadgeListLayout());
+        }
+
+        private IEnumerator RefreshBadgeListLayout()
+        {
+            yield return null;
+            if (badgeList == null) yield break;
+            Canvas.ForceUpdateCanvases();
+            LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)badgeList);
+            ScrollRect scroll = badgeList.parent.GetComponent<ScrollRect>();
+            if (scroll != null) scroll.verticalNormalizedPosition = 1f;
         }
 
         private void SelectBadgeForUse(BadgeDefinition badge)
@@ -432,8 +446,7 @@ namespace DecisionDisc
             {
                 if (imageTarget == null) throw new InvalidOperationException("没有正在编辑的徽章。");
                 store.CopyBadgeImage(imageTarget, imageTargetIsYes, path);
-                bool complete = DecisionStore.IsBadgeComplete(imageTarget);
-                badgeStatus.text = "已保存“" + imageTarget.name + "”的 " + (imageTargetIsYes ? "YES" : "NO") + " 面。" + (complete ? " 两面已补齐，可以使用。" : " 还需要上传另一面。");
+                badgeStatus.text = "已保存“" + imageTarget.name + "”的 " + (imageTargetIsYes ? "YES" : "NO") + " 面；另一面可以继续使用默认文字面或上传图片。";
                 UserActionLog.Add("徽章图片已复制到应用目录：" + imageTarget.name + " / " + (imageTargetIsYes ? "YES" : "NO"));
                 RefreshBadges();
                 if (detailBadge == imageTarget) RefreshBadgeDetailFaces();
@@ -492,7 +505,7 @@ namespace DecisionDisc
             Sprite sprite = LoadSprite(path);
             Image preview = Image(yesFace ? "YesPreview" : "NoPreview", parent, sprite == null ? (yesFace ? Yes : No) : Color.white);
             preview.sprite = sprite ?? circleSprite; preview.preserveAspect = true;
-            Text face = Label(sprite == null ? (yesFace ? "YES\n未上传" : "NO\n未上传") : (yesFace ? "YES" : "NO"), preview.transform, 24, TextAnchor.MiddleCenter, sprite == null ? Color.white : new Color(1, 1, 1, .8f)); Stretch(face.rectTransform);
+            Text face = Label(sprite == null ? (yesFace ? "YES\n默认面" : "NO\n默认面") : (yesFace ? "YES" : "NO"), preview.transform, 24, TextAnchor.MiddleCenter, sprite == null ? Color.white : new Color(1, 1, 1, .8f)); Stretch(face.rectTransform);
         }
 
         private void RefreshLogPreview()
@@ -636,8 +649,8 @@ namespace DecisionDisc
         { rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one; rect.offsetMin = new Vector2(left, bottom); rect.offsetMax = new Vector2(-right, -top); }
         private static void SetHeight(RectTransform rect, float height) { var e = rect.gameObject.GetComponent<LayoutElement>() ?? rect.gameObject.AddComponent<LayoutElement>(); e.preferredHeight = height; e.minHeight = height; }
         private static void SetFlexible(RectTransform rect) { var e = rect.gameObject.GetComponent<LayoutElement>() ?? rect.gameObject.AddComponent<LayoutElement>(); e.flexibleHeight = 1; }
-        private static void Clear(Transform parent) { for (int i = parent.childCount - 1; i >= 0; i--) Destroy(parent.GetChild(i).gameObject); }
-        private static string Present(string path) { return string.IsNullOrEmpty(path) || !File.Exists(path) ? "未上传" : Path.GetFileName(path) + "（应用内部副本）"; }
+        private static void Clear(Transform parent) { for (int i = parent.childCount - 1; i >= 0; i--) { GameObject child = parent.GetChild(i).gameObject; child.SetActive(false); Destroy(child); } }
+        private static string Present(string path) { return string.IsNullOrEmpty(path) || !File.Exists(path) ? "默认文字面" : Path.GetFileName(path) + "（应用内部副本）"; }
         private static Color Hex(string hex) { ColorUtility.TryParseHtmlString("#" + hex, out Color result); return result; }
 
         private static Sprite LoadSprite(string path)

@@ -85,7 +85,8 @@ namespace DecisionDisc
         public BadgeDefinition CreateBadge(string name)
         {
             var badge = new BadgeDefinition { id = Guid.NewGuid().ToString("N"), name = name, builtIn = false, yesProbability = 0.5f, probabilityConfigured = true };
-            Badges.badges.Add(badge);
+            // Put a newly created badge first so it is immediately visible without scrolling.
+            Badges.badges.Insert(0, badge);
             Directory.CreateDirectory(Path.Combine(badgeDirectory, badge.id));
             SaveBadges();
             return badge;
@@ -108,9 +109,8 @@ namespace DecisionDisc
 
         public static bool IsBadgeComplete(BadgeDefinition badge)
         {
-            return badge != null && (badge.builtIn ||
-                (!string.IsNullOrEmpty(badge.yesImagePath) && File.Exists(badge.yesImagePath) &&
-                 !string.IsNullOrEmpty(badge.noImagePath) && File.Exists(badge.noImagePath)));
+            // Every badge has valid generated YES/NO text faces. Images are optional replacements.
+            return badge != null;
         }
 
         public void SelectBadge(string id) { Badges.selectedBadgeId = id; SaveBadges(); }

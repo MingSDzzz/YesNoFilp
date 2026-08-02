@@ -16,8 +16,8 @@ This repository is the standalone **Decision Disc / YES NO Flip** Unity project.
 ## Product and UI
 
 - Target a modern Android mobile visual language; avoid default, retro, or desktop-like uGUI styling.
-- A custom badge is incomplete until both its YES face and NO face have app-owned image copies. Incomplete badges must remain editable but cannot be selected for throwing.
-- Creating a badge must first prompt for its name, then immediately add it to the list without forcing an image picker. The list must provide separate upload/update controls for both faces and a path into per-badge detail settings.
+- Every badge, including a newly created badge, starts with usable generated YES/NO text faces and a 50% base YES probability. User images are optional per-face replacements, not a prerequisite for selection.
+- Creating a badge must first prompt for its name, then immediately add it visibly to the top of the list without forcing an image picker. The list must provide separate upload/update controls for both faces and a path into per-badge detail settings.
 - Each badge has an editable base YES probability from 0% through 100%, defaulting to 50%. Fair mode ignores it and remains exactly 50/50; strength-influenced mode adjusts around that badge-specific base probability, while 0% must remain guaranteed NO and 100% guaranteed YES.
 - The home page must show the active badge and provide a direct route to switch badges. Selecting a complete badge from the list must update the active badge immediately.
 - Badge management must expose both face previews and allow renaming, replacing either face, selecting, and deleting each custom badge.
