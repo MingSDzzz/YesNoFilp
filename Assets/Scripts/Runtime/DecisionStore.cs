@@ -28,7 +28,7 @@ namespace DecisionDisc
 
         public void SaveExplicit(PendingDecision pending, string note)
         {
-            if (pending == null) throw new InvalidOperationException("There is no result to save.");
+            if (pending == null) throw new InvalidOperationException("当前没有可保存的投掷结果。");
             History.records.Insert(0, new DecisionRecord
             {
                 id = Guid.NewGuid().ToString("N"), question = pending.Question,
@@ -59,9 +59,9 @@ namespace DecisionDisc
         {
             var parsed = JsonUtility.FromJson<HistoryExport>(json);
             if (parsed == null || parsed.format != "decision-disc-history")
-                throw new InvalidDataException("This is not a Decision Disc history export.");
+                throw new InvalidDataException("这不是有效的 YES/NO 决策历史导出文件。");
             if (parsed.version != CurrentVersion)
-                throw new InvalidDataException("Unsupported history version: " + parsed.version);
+                throw new InvalidDataException("不支持的历史文件版本：" + parsed.version);
             if (parsed.records == null) parsed.records = new List<DecisionRecord>();
             return parsed;
         }
@@ -86,10 +86,23 @@ namespace DecisionDisc
         {
             var badge = new BadgeDefinition { id = Guid.NewGuid().ToString("N"), name = name, builtIn = false };
             Badges.badges.Add(badge);
-            Badges.selectedBadgeId = badge.id;
             Directory.CreateDirectory(Path.Combine(badgeDirectory, badge.id));
             SaveBadges();
             return badge;
+        }
+
+        public void RenameBadge(BadgeDefinition badge, string name)
+        {
+            if (badge == null || badge.builtIn || string.IsNullOrWhiteSpace(name)) return;
+            badge.name = name.Trim();
+            SaveBadges();
+        }
+
+        public static bool IsBadgeComplete(BadgeDefinition badge)
+        {
+            return badge != null && (badge.builtIn ||
+                (!string.IsNullOrEmpty(badge.yesImagePath) && File.Exists(badge.yesImagePath) &&
+                 !string.IsNullOrEmpty(badge.noImagePath) && File.Exists(badge.noImagePath)));
         }
 
         public void SelectBadge(string id) { Badges.selectedBadgeId = id; SaveBadges(); }

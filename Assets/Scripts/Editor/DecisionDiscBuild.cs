@@ -14,13 +14,25 @@ namespace DecisionDisc.Editor
     {
         private const string ScenePath = "Assets/Scenes/Main.unity";
         private const string ApkRelativePath = "Builds/YesNoFilp.apk";
+        private const string SigningConfigPath = ".signing/signing.local.json";
+
+        [Serializable]
+        private sealed class SigningConfig
+        {
+            public string keystorePath;
+            public string keystorePassword;
+            public string alias;
+            public string aliasPassword;
+        }
 
         [MenuItem("Tools/Decision Disc/Setup Android")]
         public static void SetupAndroid()
         {
-            PlayerSettings.productName = "Decision Disc";
+            PlayerSettings.productName = "YES NO 决策徽章";
             PlayerSettings.companyName = "Personal";
+            PlayerSettings.bundleVersion = "1.1.0";
             PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.personal.decisiondisc");
+            PlayerSettings.Android.bundleVersionCode = 2;
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.Portrait;
             PlayerSettings.allowedAutorotateToPortrait = true;
             PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
@@ -30,7 +42,6 @@ namespace DecisionDisc.Editor
             PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevelAuto;
             PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
             PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, ScriptingImplementation.IL2CPP);
-            PlayerSettings.Android.useCustomKeystore = false;
             EditorUserBuildSettings.buildAppBundle = false;
             CreateScene();
             AssetDatabase.SaveAssets();
@@ -41,6 +52,8 @@ namespace DecisionDisc.Editor
         public static void BuildApk()
         {
             SetupAndroid();
+            EnsureLocalSigning();
+            ConfigureSigning(true);
             List<string> missing = MissingAndroidComponents();
             if (missing.Count > 0)
                 throw new BuildFailedException("Android build cannot start. Missing: " + string.Join(", ", missing));
@@ -85,6 +98,59 @@ namespace DecisionDisc.Editor
             if (!Directory.Exists(Path.Combine(root, "NDK"))) missing.Add("Android NDK");
             if (!Directory.Exists(Path.Combine(root, "OpenJDK"))) missing.Add("OpenJDK");
             return missing;
+        }
+
+        private static void ConfigureSigning(bool required)
+        {
+            string projectRoot = Directory.GetCurrentDirectory();
+            string configPath = Path.Combine(projectRoot, SigningConfigPath);
+            if (!File.Exists(configPath))
+            {
+                PlayerSettings.Android.useCustomKeystore = false;
+                if (required) throw new BuildFailedException("缺少本机签名配置：" + configPath + "。请创建项目专用签名后再构建。");
+                return;
+            }
+            SigningConfig config = JsonUtility.FromJson<SigningConfig>(File.ReadAllText(configPath));
+            if (config == null || string.IsNullOrEmpty(config.keystorePath) || string.IsNullOrEmpty(config.keystorePassword) || string.IsNullOrEmpty(config.alias) || string.IsNullOrEmpty(config.aliasPassword))
+                throw new BuildFailedException("签名配置字段不完整：" + configPath);
+            string keystore = Path.GetFullPath(Path.Combine(projectRoot, config.keystorePath));
+            if (!File.Exists(keystore)) throw new BuildFailedException("找不到签名文件：" + keystore);
+            PlayerSettings.Android.useCustomKeystore = true;
+            PlayerSettings.Android.keystoreName = keystore;
+            PlayerSettings.Android.keystorePass = config.keystorePassword;
+            PlayerSettings.Android.keyaliasName = config.alias;
+            PlayerSettings.Android.keyaliasPass = config.aliasPassword;
+            Debug.Log("DECISION_DISC_SIGNING=" + config.alias);
+        }
+
+        private static void EnsureLocalSigning()
+        {
+            string projectRoot = Directory.GetCurrentDirectory();
+            string configPath = Path.Combine(projectRoot, SigningConfigPath);
+            if (File.Exists(configPath)) return;
+            string keytool = Path.Combine(EditorApplication.applicationContentsPath, "PlaybackEngines", "AndroidPlayer", "OpenJDK", "bin", "keytool.exe");
+            if (!File.Exists(keytool)) throw new BuildFailedException("无法创建项目签名：缺少 OpenJDK keytool.exe");
+            string directory = Path.Combine(projectRoot, ".signing");
+            Directory.CreateDirectory(directory);
+            string keystore = Path.Combine(directory, "YesNoFilp.keystore");
+            string password = "Ynf" + Guid.NewGuid().ToString("N").Substring(0, 21);
+            var start = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = keytool,
+                Arguments = "-genkeypair -v -keystore \"" + keystore + "\" -alias yesnofilp -keyalg RSA -keysize 2048 -validity 10000 -storepass " + password + " -keypass " + password + " -dname \"CN=YesNoFilp Personal, OU=Personal, O=YesNoFilp, L=Shanghai, ST=Shanghai, C=CN\" -storetype PKCS12",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            using (System.Diagnostics.Process process = System.Diagnostics.Process.Start(start))
+            {
+                process.WaitForExit();
+                if (process.ExitCode != 0) throw new BuildFailedException("创建项目签名失败：" + process.StandardError.ReadToEnd());
+            }
+            var config = new SigningConfig { keystorePath = ".signing/YesNoFilp.keystore", keystorePassword = password, alias = "yesnofilp", aliasPassword = password };
+            File.WriteAllText(configPath, JsonUtility.ToJson(config, true));
+            Debug.Log("已创建项目专用 Android 签名。请安全备份 .signing 目录。");
         }
 
         private static void CreateScene()

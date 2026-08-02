@@ -16,6 +16,8 @@ public class DecisionFilePicker extends Activity {
     private static final int REQUEST = 7193;
     private static String receiver;
     private static String pendingText;
+    private static String pendingFileName;
+    private static String pendingMimeType;
     private String mode;
 
     public static void pickText(Activity activity, String gameObject) {
@@ -26,8 +28,10 @@ public class DecisionFilePicker extends Activity {
         launch(activity, gameObject, "image", null);
     }
 
-    public static void createText(Activity activity, String gameObject, String json) {
-        launch(activity, gameObject, "export", json);
+    public static void createText(Activity activity, String gameObject, String text, String fileName, String mimeType) {
+        pendingFileName = fileName;
+        pendingMimeType = mimeType;
+        launch(activity, gameObject, "export", text);
     }
 
     private static void launch(Activity activity, String gameObject, String kind, String text) {
@@ -44,8 +48,8 @@ public class DecisionFilePicker extends Activity {
         Intent intent;
         if ("export".equals(mode)) {
             intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-            intent.setType("application/json");
-            intent.putExtra(Intent.EXTRA_TITLE, "decision-disc-history.json");
+            intent.setType(pendingMimeType == null ? "text/plain" : pendingMimeType);
+            intent.putExtra(Intent.EXTRA_TITLE, pendingFileName == null ? "YesNoFilp-export.txt" : pendingFileName);
         } else {
             intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -83,6 +87,8 @@ public class DecisionFilePicker extends Activity {
             }
         } catch (Exception error) { send("OnFilePickerError", error.getMessage()); }
         pendingText = null;
+        pendingFileName = null;
+        pendingMimeType = null;
         finish();
     }
 

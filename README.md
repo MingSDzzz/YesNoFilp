@@ -2,6 +2,8 @@
 
 A private-first Android decision helper built from scratch with Unity `2022.3.62f2c1`.
 
+Current Android release: `1.1.0` (`versionCode 2`).
+
 ## Features
 
 - Four portrait pages: throw, badge manager, saved history, and settings.
@@ -31,6 +33,8 @@ No current question or unsaved result is automatically written.
 - `Tools/Decision Disc/Build APK` first validates Android Build Support, SDK, NDK, and OpenJDK, then builds `Builds/YesNoFilp.apk`.
 
 The build command throws a clear error naming every missing component. It reports success only after a non-empty APK exists.
+
+Android builds use a project-specific local keystore configured by `.signing/signing.local.json`. The entire `.signing` directory is intentionally ignored by Git because it contains upgrade-signing secrets. Back it up securely: future APK upgrades must use the same key.
 
 ## Command-line validation/build
 

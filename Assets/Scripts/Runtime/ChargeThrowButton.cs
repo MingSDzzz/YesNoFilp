@@ -70,7 +70,7 @@ namespace DecisionDisc
         private void SetVisual(float value)
         {
             if (Fill != null) Fill.fillAmount = value;
-            if (Label != null) Label.text = value > 0f ? "CHARGING  " + Mathf.RoundToInt(value * 100f) + "%" : "HOLD TO THROW";
+            if (Label != null) Label.text = value > 0f ? "蓄力中  " + Mathf.RoundToInt(value * 100f) + "%" : "按住蓄力，松开投掷";
         }
 
         private static float ReadPressure(PointerEventData eventData)

@@ -34,7 +34,7 @@ Thumbs.db
 *.unitypackage
 *.log
 sysinfo.txt
+.signing/
 
 # Crash reports
 crashlytics-build.properties
-
