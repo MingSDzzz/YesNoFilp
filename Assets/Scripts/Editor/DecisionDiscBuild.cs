@@ -13,7 +13,6 @@ namespace DecisionDisc.Editor
     public static class DecisionDiscBuild
     {
         private const string ScenePath = "Assets/Scenes/Main.unity";
-        private const string ApkRelativePath = "Builds/YesNoFilp.apk";
         private const string SigningConfigPath = ".signing/signing.local.json";
 
         [Serializable]
@@ -30,9 +29,9 @@ namespace DecisionDisc.Editor
         {
             PlayerSettings.productName = "YES NO 决策徽章";
             PlayerSettings.companyName = "Personal";
-            PlayerSettings.bundleVersion = "1.2.1";
+            PlayerSettings.bundleVersion = "1.2.2";
             PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.personal.decisiondisc");
-            PlayerSettings.Android.bundleVersionCode = 4;
+            PlayerSettings.Android.bundleVersionCode = 5;
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.Portrait;
             PlayerSettings.allowedAutorotateToPortrait = true;
             PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
@@ -61,7 +60,8 @@ namespace DecisionDisc.Editor
             if (!EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android, BuildTarget.Android))
                 throw new BuildFailedException("Unity could not switch to the Android build target.");
 
-            string absoluteApk = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), ApkRelativePath));
+            string apkRelativePath = "Builds/YesNoFilp-v" + PlayerSettings.bundleVersion + ".apk";
+            string absoluteApk = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), apkRelativePath));
             Directory.CreateDirectory(Path.GetDirectoryName(absoluteApk));
             var options = new BuildPlayerOptions
             {

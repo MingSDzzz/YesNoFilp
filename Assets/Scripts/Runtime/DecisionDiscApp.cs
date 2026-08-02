@@ -189,7 +189,7 @@ namespace DecisionDisc
             CardText(content, "隐私\n当前问题、未保存结果和操作日志默认只在内存中。只有明确保存或导出才会写入文件。");
             CardText(content, "随机模式\n每个徽章可设置 0%–100% YES 基础概率。公平模式始终为 50/50；力度影响模式会围绕基础概率调整，0% 必定 NO、100% 必定 YES。");
             CardText(content, "本地存储\n历史记录和徽章图片副本保存在 Application.persistentDataPath。");
-            CardText(content, "版本\nYesNoFilp 1.2.1 · 历史 JSON 格式 v1");
+            CardText(content, "版本\nYesNoFilp 1.2.2 · 历史 JSON 格式 v1");
             return page;
         }
 
@@ -574,8 +574,10 @@ namespace DecisionDisc
 
         private static Transform ScrollContent(string name, Transform parent, float height)
         {
-            var scrollObject = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Mask), typeof(ScrollRect)); scrollObject.transform.SetParent(parent, false);
-            scrollObject.GetComponent<Image>().color = Color.clear; scrollObject.GetComponent<Mask>().showMaskGraphic = false;
+            // RectMask2D clips by geometry and does not depend on a visible mask graphic.
+            // A fully transparent Image + Mask caused every child in Android scroll views
+            // to be clipped, which made badge cards and settings actions appear missing.
+            var scrollObject = new GameObject(name, typeof(RectTransform), typeof(RectMask2D), typeof(ScrollRect)); scrollObject.transform.SetParent(parent, false);
             if (height > 0) SetHeight((RectTransform)scrollObject.transform, height); else SetFlexible((RectTransform)scrollObject.transform);
             var viewport = (RectTransform)scrollObject.transform;
             var content = Rect("Content", viewport); content.anchorMin = new Vector2(0, 1); content.anchorMax = new Vector2(1, 1); content.pivot = new Vector2(.5f, 1); content.sizeDelta = Vector2.zero;

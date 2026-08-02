@@ -36,6 +36,7 @@ This repository is the standalone **Decision Disc / YES NO Flip** Unity project.
 - Run the editor validation method `DecisionDisc.Editor.DecisionDiscBuild.ValidateProject` in batch mode after code changes.
 - Build Android through `Tools/Decision Disc/Build APK` or `DecisionDisc.Editor.DecisionDiscBuild.BuildApk`.
 - A successful command invocation is not a successful Android build unless the APK exists and has non-zero length.
+- Name generated APKs with the application version suffix, for example `YesNoFilp-v1.2.2.apk`.
 
 ## Git
 

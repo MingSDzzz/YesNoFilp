@@ -52,7 +52,7 @@
 ## Unity 编辑器菜单
 
 - `Tools/Decision Disc/Setup Android`：设置竖屏方向、包名、最低 Android API、IL2CPP/ARM64，并创建运行场景。
-- `Tools/Decision Disc/Build APK`：检查 Android Build Support、SDK、NDK 和 OpenJDK，然后构建 `Builds/YesNoFilp.apk`。
+- `Tools/Decision Disc/Build APK`：检查 Android Build Support、SDK、NDK 和 OpenJDK，然后构建带版本号的 APK，例如 `Builds/YesNoFilp-v1.2.2.apk`。
 
 如果构建组件缺失，命令会明确列出缺少的组件。只有目标 APK 确实存在且文件大小大于零时，才会报告构建成功。
 
