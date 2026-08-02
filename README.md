@@ -28,7 +28,7 @@ No current question or unsaved result is automatically written.
 ## Editor menus
 
 - `Tools/Decision Disc/Setup Android` configures portrait orientation, package identifier, minimum API, IL2CPP/ARM64, and creates the runtime scene.
-- `Tools/Decision Disc/Build APK` first validates Android Build Support, SDK, NDK, and OpenJDK, then builds `Builds/DecisionDisc.apk`.
+- `Tools/Decision Disc/Build APK` first validates Android Build Support, SDK, NDK, and OpenJDK, then builds `Builds/YesNoFilp.apk`.
 
 The build command throws a clear error naming every missing component. It reports success only after a non-empty APK exists.
 
@@ -49,4 +49,3 @@ The build command throws a clear error naming every missing component. It report
 ## JSON format
 
 Exports use an envelope with `format`, integer `version`, `exportedAtUtc`, and `records`. Import currently accepts version `1`; unsupported versions are rejected before any data changes.
-

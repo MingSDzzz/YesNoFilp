@@ -13,7 +13,7 @@ namespace DecisionDisc.Editor
     public static class DecisionDiscBuild
     {
         private const string ScenePath = "Assets/Scenes/Main.unity";
-        private const string ApkRelativePath = "Builds/DecisionDisc.apk";
+        private const string ApkRelativePath = "Builds/YesNoFilp.apk";
 
         [MenuItem("Tools/Decision Disc/Setup Android")]
         public static void SetupAndroid()
