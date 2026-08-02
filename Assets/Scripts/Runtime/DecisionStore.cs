@@ -35,7 +35,7 @@ namespace DecisionDisc
                 result = pending.IsYes ? "YES" : "NO", strength = pending.Strength,
                 strengthSource = pending.StrengthSource, mode = pending.Mode.ToString(),
                 timestampUtc = pending.TimestampUtc.ToString("o"), note = note ?? string.Empty,
-                badgeId = pending.BadgeId
+                badgeId = pending.BadgeId, yesProbabilityUsed = pending.YesProbabilityUsed
             });
             Write(historyPath, History);
         }
@@ -84,7 +84,7 @@ namespace DecisionDisc
 
         public BadgeDefinition CreateBadge(string name)
         {
-            var badge = new BadgeDefinition { id = Guid.NewGuid().ToString("N"), name = name, builtIn = false };
+            var badge = new BadgeDefinition { id = Guid.NewGuid().ToString("N"), name = name, builtIn = false, yesProbability = 0.5f, probabilityConfigured = true };
             Badges.badges.Add(badge);
             Directory.CreateDirectory(Path.Combine(badgeDirectory, badge.id));
             SaveBadges();
@@ -95,6 +95,14 @@ namespace DecisionDisc
         {
             if (badge == null || badge.builtIn || string.IsNullOrWhiteSpace(name)) return;
             badge.name = name.Trim();
+            SaveBadges();
+        }
+
+        public void SetBadgeProbability(BadgeDefinition badge, float yesProbability)
+        {
+            if (badge == null) return;
+            badge.yesProbability = Mathf.Clamp01(yesProbability);
+            badge.probabilityConfigured = true;
             SaveBadges();
         }
 
@@ -139,7 +147,9 @@ namespace DecisionDisc
         private void EnsureClassicBadge()
         {
             if (Badges.badges.Find(item => item.id == "classic") == null)
-                Badges.badges.Insert(0, new BadgeDefinition { id = "classic", name = "Classic YES / NO", builtIn = true });
+                Badges.badges.Insert(0, new BadgeDefinition { id = "classic", name = "经典 YES / NO", builtIn = true, yesProbability = 0.5f, probabilityConfigured = true });
+            foreach (BadgeDefinition badge in Badges.badges)
+                if (!badge.probabilityConfigured) { badge.yesProbability = 0.5f; badge.probabilityConfigured = true; }
             SaveBadges();
         }
 

@@ -26,6 +26,7 @@ namespace DecisionDisc
         private Text discText;
         private Text status;
         private Text modeText;
+        private Text selectedBadgeText;
         private Button saveButton;
         private Transform badgeList;
         private Transform historyList;
@@ -33,6 +34,18 @@ namespace DecisionDisc
         private Text logPreview;
         private Text importPreview;
         private GameObject importPanel;
+        private GameObject createBadgePanel;
+        private InputField createBadgeNameInput;
+        private GameObject badgeDetailPanel;
+        private Text badgeDetailTitle;
+        private InputField badgeDetailNameInput;
+        private Slider badgeProbabilitySlider;
+        private Text badgeProbabilityText;
+        private Transform badgeDetailFaces;
+        private Button badgeDetailYesButton;
+        private Button badgeDetailNoButton;
+        private Button badgeDetailDeleteButton;
+        private BadgeDefinition detailBadge;
         private HistoryExport pendingImport;
         private BadgeDefinition imageTarget;
         private bool imageTargetIsYes;
@@ -100,6 +113,8 @@ namespace DecisionDisc
             pages.Add(BuildSettings(pageHost));
             BuildNavigation(safe);
             BuildImportPanel(safe);
+            BuildBadgeCreatePanel(safe);
+            BuildBadgeDetailPanel(safe);
         }
 
         private GameObject BuildHome(Transform parent)
@@ -115,6 +130,10 @@ namespace DecisionDisc
             disc.rectTransform.anchorMin = disc.rectTransform.anchorMax = new Vector2(.5f, .5f);
             disc.rectTransform.sizeDelta = new Vector2(380, 380);
             discText = Label("YES / NO", disc.transform, 58, TextAnchor.MiddleCenter, Background); Stretch(discText.rectTransform);
+
+            var badgeSwitch = Horizontal("BadgeSwitch", page.transform, 76);
+            selectedBadgeText = Label("当前徽章：" + store.SelectedBadge().name, badgeSwitch, 27, TextAnchor.MiddleLeft, Color.white);
+            Button("SwitchBadge", badgeSwitch, "切换徽章", () => ShowPage(1), Panel, 72);
 
             questionInput = Input("请输入本次要决定的问题", page.transform, 128, false);
             var modeButton = Button("Mode", page.transform, "公平 50 / 50", ToggleMode, Panel, 80);
@@ -163,7 +182,7 @@ namespace DecisionDisc
             Header(page.transform, "设置", "隐私说明、随机模式与问题排查");
             Transform content = ScrollContent("SettingsScroll", page.transform, 0);
             CardText(content, "隐私\n当前问题、未保存结果和操作日志默认只在内存中。只有明确保存或导出才会写入文件。");
-            CardText(content, "随机模式\n公平模式始终为 50/50；力度影响模式会把 YES 概率映射到 25%–75%。");
+            CardText(content, "随机模式\n每个徽章可设置 0%–100% YES 基础概率。公平模式始终为 50/50；力度影响模式会围绕基础概率调整，0% 必定 NO、100% 必定 YES。");
             CardText(content, "本地存储\n历史记录和徽章图片副本保存在 Application.persistentDataPath。");
             Button("RefreshLog", content, "刷新操作日志预览", RefreshLogPreview, Panel, 76);
             logPreview = Label("暂无操作日志。", content, 21, TextAnchor.UpperLeft, Color.white); SetHeight(logPreview.rectTransform, 300);
@@ -192,14 +211,49 @@ namespace DecisionDisc
             importPanel.SetActive(false);
         }
 
+        private void BuildBadgeCreatePanel(Transform parent)
+        {
+            createBadgePanel = Image("CreateBadgePanel", parent, new Color(0.05f, .07f, .12f, .98f)).gameObject;
+            Stretch((RectTransform)createBadgePanel.transform, 90, 470, 90, 470);
+            var layout = createBadgePanel.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(36, 36, 36, 36); layout.spacing = 28; layout.childForceExpandHeight = false;
+            Text title = Label("创建新徽章", createBadgePanel.transform, 42, TextAnchor.MiddleCenter, Color.white); SetHeight(title.rectTransform, 76);
+            Text hint = Label("先输入名称。创建后徽章会立即出现在列表中，再分别上传 YES 面和 NO 面。", createBadgePanel.transform, 26, TextAnchor.MiddleCenter, Hex("D0D5DD")); SetHeight(hint.rectTransform, 110);
+            createBadgeNameInput = Input("请输入徽章名称", createBadgePanel.transform, 100, false);
+            Button("ConfirmCreate", createBadgePanel.transform, "创建徽章", ConfirmCreateBadge, Accent, 88);
+            Button("CancelCreate", createBadgePanel.transform, "取消", () => createBadgePanel.SetActive(false), Panel, 78);
+            createBadgePanel.SetActive(false);
+        }
+
+        private void BuildBadgeDetailPanel(Transform parent)
+        {
+            badgeDetailPanel = Image("BadgeDetailPanel", parent, new Color(0.05f, .07f, .12f, .98f)).gameObject;
+            Stretch((RectTransform)badgeDetailPanel.transform, 54, 160, 54, 130);
+            var layout = badgeDetailPanel.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(34, 34, 30, 30); layout.spacing = 18; layout.childForceExpandHeight = false;
+            badgeDetailTitle = Label("徽章设置", badgeDetailPanel.transform, 42, TextAnchor.MiddleCenter, Color.white); SetHeight(badgeDetailTitle.rectTransform, 70);
+            badgeDetailNameInput = Input("徽章名称", badgeDetailPanel.transform, 88, false);
+            badgeDetailFaces = Horizontal("DetailFaces", badgeDetailPanel.transform, 260);
+            var imageActions = Horizontal("DetailImageActions", badgeDetailPanel.transform, 82);
+            badgeDetailYesButton = Button("DetailYes", imageActions, "上传/更新 YES 面", () => PickBadgeImage(detailBadge, true), Yes, 80);
+            badgeDetailNoButton = Button("DetailNo", imageActions, "上传/更新 NO 面", () => PickBadgeImage(detailBadge, false), No, 80);
+            badgeProbabilityText = Label("YES 基础概率：50%", badgeDetailPanel.transform, 30, TextAnchor.MiddleCenter, Color.white); SetHeight(badgeProbabilityText.rectTransform, 58);
+            badgeProbabilitySlider = SliderControl("BadgeProbability", badgeDetailPanel.transform, 0f, 1f, value => badgeProbabilityText.text = "YES 基础概率：" + Mathf.RoundToInt(value * 100) + "%");
+            Text explanation = Label("可设置 0%–100%。仅在“力度影响概率”模式生效；0% 必定 NO，100% 必定 YES。公平模式始终保持 50/50。", badgeDetailPanel.transform, 24, TextAnchor.MiddleCenter, Hex("98A2B3")); SetHeight(explanation.rectTransform, 100);
+            Button("SaveDetail", badgeDetailPanel.transform, "保存徽章设置", SaveBadgeDetail, Accent, 84);
+            badgeDetailDeleteButton = Button("DeleteDetail", badgeDetailPanel.transform, "删除此徽章", DeleteDetailBadge, No, 76);
+            Button("CloseDetail", badgeDetailPanel.transform, "返回徽章列表", () => badgeDetailPanel.SetActive(false), Panel, 76);
+            badgeDetailPanel.SetActive(false);
+        }
+
         private void Throw(float strength, string source)
         {
             string question = questionInput.text.Trim();
             if (string.IsNullOrEmpty(question)) { status.text = "请先输入要决定的问题。"; UserActionLog.Add("投掷被阻止：问题为空"); return; }
-            bool yes = DecisionEngine.Decide(strength, mode);
-            pending = new PendingDecision { Question = question, IsYes = yes, Strength = strength, StrengthSource = source, Mode = mode, TimestampUtc = DateTime.UtcNow, BadgeId = store.SelectedBadge().id };
+            BadgeDefinition selectedBadge = store.SelectedBadge();
+            float effectiveProbability = DecisionEngine.EffectiveYesProbability(strength, mode, selectedBadge.yesProbability);
+            bool yes = DecisionEngine.Decide(strength, mode, selectedBadge.yesProbability);
+            pending = new PendingDecision { Question = question, IsYes = yes, Strength = strength, StrengthSource = source, Mode = mode, TimestampUtc = DateTime.UtcNow, BadgeId = selectedBadge.id, YesProbabilityUsed = effectiveProbability };
             sessionDecisions.Insert(0, pending);
-            UserActionLog.Add("开始投掷；问题=" + question + "；力度=" + Mathf.RoundToInt(strength * 100) + "%；来源=" + StrengthSourceLabel(source) + "；模式=" + ModeLabel(mode));
+            UserActionLog.Add("开始投掷；问题=" + question + "；徽章=" + selectedBadge.name + "；力度=" + Mathf.RoundToInt(strength * 100) + "%；YES 实际概率=" + Mathf.RoundToInt(effectiveProbability * 100) + "%；来源=" + StrengthSourceLabel(source) + "；模式=" + ModeLabel(mode));
             saveButton.interactable = false;
             StopAllCoroutines(); StartCoroutine(AnimateThrow(pending));
         }
@@ -224,7 +278,7 @@ namespace DecisionDisc
             disc.rectTransform.anchoredPosition = start;
             disc.rectTransform.localEulerAngles = Vector3.zero; disc.rectTransform.localScale = Vector3.one;
             RenderDiscFace(value.IsYes, animationBadge);
-            status.text = (value.IsYes ? "YES" : "NO") + "  ·  力度 " + Mathf.RoundToInt(value.Strength * 100) + "%  ·  " + StrengthSourceLabel(value.StrengthSource) + "\n尚未永久保存，可在记录页查看本次内存记录";
+            status.text = (value.IsYes ? "YES" : "NO") + "  ·  力度 " + Mathf.RoundToInt(value.Strength * 100) + "%  ·  YES 概率 " + Mathf.RoundToInt(value.YesProbabilityUsed * 100) + "%\n尚未永久保存，可在记录页查看本次内存记录";
             UserActionLog.Add("投掷完成；结果=" + (value.IsYes ? "YES" : "NO"));
             saveButton.interactable = true;
             RefreshHistory();
@@ -249,16 +303,32 @@ namespace DecisionDisc
 
         private void CreateBadge()
         {
-            BadgeDefinition badge = store.CreateBadge("新徽章 " + store.Badges.badges.Count);
+            createBadgeNameInput.text = string.Empty;
+            createBadgePanel.SetActive(true);
+            UserActionLog.Add("打开创建徽章弹窗");
+        }
+
+        private void ConfirmCreateBadge()
+        {
+            string name = createBadgeNameInput.text.Trim();
+            if (string.IsNullOrEmpty(name))
+            {
+                createBadgeNameInput.placeholder.GetComponent<Text>().text = "名称不能为空，请输入徽章名称";
+                UserActionLog.Add("创建徽章被阻止：名称为空");
+                return;
+            }
+            BadgeDefinition badge = store.CreateBadge(name);
             imageTarget = badge;
             badgeStatus.text = "已创建“" + badge.name + "”，请分别上传 YES 面和 NO 面，补齐后才能使用。";
             UserActionLog.Add("创建徽章：" + badge.name);
+            createBadgePanel.SetActive(false);
             RefreshBadges();
         }
 
         private void RefreshBadges()
         {
             if (badgeList == null) return; Clear(badgeList);
+            UpdateSelectedBadgeText();
             var ordered = new List<BadgeDefinition>();
             if (imageTarget != null && store.Badges.badges.Contains(imageTarget)) ordered.Add(imageTarget);
             foreach (BadgeDefinition item in store.Badges.badges) if (!ordered.Contains(item)) ordered.Add(item);
@@ -266,28 +336,92 @@ namespace DecisionDisc
             {
                 BadgeDefinition badge = badgeItem;
                 bool complete = DecisionStore.IsBadgeComplete(badge);
-                var card = VerticalCard("Badge", badgeList, badge.builtIn ? 300 : 500);
+                var card = VerticalCard("Badge", badgeList, badge.builtIn ? 340 : 440);
                 Text name = Label((badge.id == store.Badges.selectedBadgeId ? "●  当前使用：" : "○  ") + badge.name, card, 32, TextAnchor.MiddleLeft, Color.white); SetHeight(name.rectTransform, 54);
-                if (!badge.builtIn)
-                {
-                    var renameRow = Horizontal("Rename", card, 70);
-                    InputField nameInput = Input("徽章名称", renameRow, 68, false); nameInput.text = badge.name;
-                    Button("Rename", renameRow, "保存名称", () => { store.RenameBadge(badge, nameInput.text); badgeStatus.text = "名称已修改为“" + badge.name + "”。"; UserActionLog.Add("修改徽章名称：" + badge.name); RefreshBadges(); }, Panel, 68);
-                }
                 var previews = Horizontal("FacePreviews", card, 150);
                 AddFacePreview(previews, badge, true);
                 AddFacePreview(previews, badge, false);
-                var actions = Horizontal("BadgeActions", card, 72);
-                Button use = Button("Use", actions, complete ? "使用此徽章" : "请先补齐两面", () => { store.SelectBadge(badge.id); RenderDiscFace(true, badge); badgeStatus.text = "当前使用：“ + badge.name + ”"; UserActionLog.Add("选择徽章：" + badge.name); RefreshBadges(); }, Accent, 70);
-                use.interactable = complete;
                 if (!badge.builtIn)
                 {
-                    Button("YesImage", actions, "上传 YES 面", () => PickBadgeImage(badge, true), Yes, 70);
-                    Button("NoImage", actions, "上传 NO 面", () => PickBadgeImage(badge, false), No, 70);
-                    Button("Delete", actions, "删除", () => { UserActionLog.Add("删除徽章：" + badge.name); store.DeleteBadge(badge.id); if (imageTarget == badge) imageTarget = null; RefreshBadges(); }, Panel, 70);
+                    var imageActions = Horizontal("ImageActions", card, 68);
+                    Button("YesImage", imageActions, string.IsNullOrEmpty(badge.yesImagePath) ? "上传 YES 面" : "更新 YES 面", () => PickBadgeImage(badge, true), Yes, 66);
+                    Button("NoImage", imageActions, string.IsNullOrEmpty(badge.noImagePath) ? "上传 NO 面" : "更新 NO 面", () => PickBadgeImage(badge, false), No, 66);
                 }
-                Text paths = Label(badge.builtIn ? "内置经典徽章" : "YES 面：" + Present(badge.yesImagePath) + "\nNO 面：" + Present(badge.noImagePath), card, 21, TextAnchor.UpperLeft, complete ? Accent : Hex("F79009")); SetHeight(paths.rectTransform, 70);
+                var actions = Horizontal("BadgeActions", card, 68);
+                Button use = Button("Use", actions, complete ? "使用此徽章" : "两面未补齐", () => SelectBadgeForUse(badge), Accent, 66);
+                use.interactable = complete;
+                Button("OpenDetail", actions, "进入设置  ›", () => OpenBadgeDetail(badge), Panel, 66);
+                Text probability = Label("YES 基础概率：" + Mathf.RoundToInt(badge.yesProbability * 100) + "%" + (complete ? "" : "  ·  请补齐两面"), card, 21, TextAnchor.MiddleLeft, complete ? Accent : Hex("F79009")); SetHeight(probability.rectTransform, 48);
             }
+        }
+
+        private void SelectBadgeForUse(BadgeDefinition badge)
+        {
+            if (!DecisionStore.IsBadgeComplete(badge)) return;
+            store.SelectBadge(badge.id);
+            RenderDiscFace(true, badge);
+            UpdateSelectedBadgeText();
+            badgeStatus.text = "已切换到“" + badge.name + "”。";
+            UserActionLog.Add("切换当前徽章：" + badge.name);
+            RefreshBadges();
+            ShowPage(0);
+        }
+
+        private void UpdateSelectedBadgeText()
+        {
+            if (selectedBadgeText == null) return;
+            BadgeDefinition badge = store.SelectedBadge();
+            selectedBadgeText.text = "当前徽章：" + badge.name + "  ·  YES 基础概率 " + Mathf.RoundToInt(badge.yesProbability * 100) + "%";
+        }
+
+        private void OpenBadgeDetail(BadgeDefinition badge)
+        {
+            detailBadge = badge;
+            badgeDetailTitle.text = "徽章设置 · " + badge.name;
+            badgeDetailNameInput.text = badge.name;
+            badgeDetailNameInput.interactable = !badge.builtIn;
+            badgeProbabilitySlider.value = badge.yesProbability;
+            badgeProbabilityText.text = "YES 基础概率：" + Mathf.RoundToInt(badge.yesProbability * 100) + "%";
+            badgeDetailYesButton.interactable = !badge.builtIn;
+            badgeDetailNoButton.interactable = !badge.builtIn;
+            badgeDetailDeleteButton.interactable = !badge.builtIn;
+            RefreshBadgeDetailFaces();
+            badgeDetailPanel.SetActive(true);
+            UserActionLog.Add("进入徽章设置：" + badge.name);
+        }
+
+        private void RefreshBadgeDetailFaces()
+        {
+            if (detailBadge == null || badgeDetailFaces == null) return;
+            Clear(badgeDetailFaces);
+            AddFacePreview(badgeDetailFaces, detailBadge, true);
+            AddFacePreview(badgeDetailFaces, detailBadge, false);
+        }
+
+        private void SaveBadgeDetail()
+        {
+            if (detailBadge == null) return;
+            if (!detailBadge.builtIn)
+            {
+                string name = badgeDetailNameInput.text.Trim();
+                if (string.IsNullOrEmpty(name)) { badgeStatus.text = "徽章名称不能为空。"; return; }
+                store.RenameBadge(detailBadge, name);
+            }
+            store.SetBadgeProbability(detailBadge, badgeProbabilitySlider.value);
+            badgeStatus.text = "已保存“" + detailBadge.name + "”的设置，YES 基础概率为 " + Mathf.RoundToInt(detailBadge.yesProbability * 100) + "% 。";
+            UserActionLog.Add("保存徽章设置：" + detailBadge.name + "；YES 基础概率=" + Mathf.RoundToInt(detailBadge.yesProbability * 100) + "%");
+            badgeDetailTitle.text = "徽章设置 · " + detailBadge.name;
+            UpdateSelectedBadgeText();
+            RefreshBadges();
+        }
+
+        private void DeleteDetailBadge()
+        {
+            if (detailBadge == null || detailBadge.builtIn) return;
+            UserActionLog.Add("删除徽章：" + detailBadge.name);
+            store.DeleteBadge(detailBadge.id);
+            if (imageTarget == detailBadge) imageTarget = null;
+            detailBadge = null; badgeDetailPanel.SetActive(false); UpdateSelectedBadgeText(); RefreshBadges();
         }
 
         private void PickBadgeImage(BadgeDefinition badge, bool yesFace) { imageTarget = badge; imageTargetIsYes = yesFace; badgeStatus.text = "正在为“" + badge.name + "”选择 " + (yesFace ? "YES" : "NO") + " 面图片…"; UserActionLog.Add("选择徽章图片：" + badge.name + " / " + (yesFace ? "YES" : "NO")); files.PickImage(); }
@@ -301,7 +435,9 @@ namespace DecisionDisc
                 bool complete = DecisionStore.IsBadgeComplete(imageTarget);
                 badgeStatus.text = "已保存“" + imageTarget.name + "”的 " + (imageTargetIsYes ? "YES" : "NO") + " 面。" + (complete ? " 两面已补齐，可以使用。" : " 还需要上传另一面。");
                 UserActionLog.Add("徽章图片已复制到应用目录：" + imageTarget.name + " / " + (imageTargetIsYes ? "YES" : "NO"));
-                RefreshBadges(); if (store.Badges.selectedBadgeId == imageTarget.id) RenderDiscFace(imageTargetIsYes, imageTarget);
+                RefreshBadges();
+                if (detailBadge == imageTarget) RefreshBadgeDetailFaces();
+                if (store.Badges.selectedBadgeId == imageTarget.id) RenderDiscFace(imageTargetIsYes, imageTarget);
             }
             catch (Exception exception) { badgeStatus.text = "图片保存失败：" + exception.Message; UserActionLog.Add("徽章图片保存失败：" + exception.Message); Debug.LogWarning(exception); }
         }
@@ -315,7 +451,7 @@ namespace DecisionDisc
             {
                 bool saved = savedSessionDecisions.Contains(session);
                 var card = VerticalCard("SessionRecord", historyList, 190);
-                Text headline = Label((session.IsYes ? "YES" : "NO") + "  ·  力度 " + Mathf.RoundToInt(session.Strength * 100) + "%  ·  " + (saved ? "已永久保存" : "尚未保存"), card, 28, TextAnchor.MiddleLeft, session.IsYes ? Yes : No); SetHeight(headline.rectTransform, 52);
+                Text headline = Label((session.IsYes ? "YES" : "NO") + "  ·  力度 " + Mathf.RoundToInt(session.Strength * 100) + "%  ·  YES 概率 " + Mathf.RoundToInt(session.YesProbabilityUsed * 100) + "%  ·  " + (saved ? "已永久保存" : "尚未保存"), card, 26, TextAnchor.MiddleLeft, session.IsYes ? Yes : No); SetHeight(headline.rectTransform, 52);
                 Text question = Label(session.Question + "\n" + session.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") + " · " + ModeLabel(session.Mode), card, 24, TextAnchor.UpperLeft, Color.white); SetHeight(question.rectTransform, 100);
             }
             Text savedTitle = Label("已保存记录 · " + store.History.records.Count + " 条", historyList, 30, TextAnchor.MiddleLeft, Accent); SetHeight(savedTitle.rectTransform, 58);
@@ -324,7 +460,8 @@ namespace DecisionDisc
             {
                 DecisionRecord record = recordItem;
                 var card = VerticalCard("Record", historyList, 230);
-                Text headline = Label(record.result + "  ·  力度 " + Mathf.RoundToInt(record.strength * 100) + "%  ·  " + StoredModeLabel(record.mode), card, 30, TextAnchor.MiddleLeft, record.result == "YES" ? Yes : No); SetHeight(headline.rectTransform, 52);
+                string probabilityInfo = record.yesProbabilityUsed > 0f ? "  ·  YES 概率 " + Mathf.RoundToInt(record.yesProbabilityUsed * 100) + "%" : string.Empty;
+                Text headline = Label(record.result + "  ·  力度 " + Mathf.RoundToInt(record.strength * 100) + "%" + probabilityInfo + "  ·  " + StoredModeLabel(record.mode), card, 27, TextAnchor.MiddleLeft, record.result == "YES" ? Yes : No); SetHeight(headline.rectTransform, 52);
                 Text question = Label(record.question + (string.IsNullOrEmpty(record.note) ? "" : "\n备注：" + record.note) + "\n" + LocalTime(record.timestampUtc), card, 25, TextAnchor.UpperLeft, Color.white); SetHeight(question.rectTransform, 104);
                 Button("Delete", card, "删除这条记录", () => { UserActionLog.Add("删除已保存记录：" + record.question); store.DeleteRecord(record.id); RefreshHistory(); }, Panel, 58);
             }
@@ -462,6 +599,16 @@ namespace DecisionDisc
             var image = Image(name, parent, color); SetHeight(image.rectTransform, height);
             var button = image.gameObject.AddComponent<Button>(); button.targetGraphic = image; button.onClick.AddListener(action);
             Text label = Label(value, image.transform, 26, TextAnchor.MiddleCenter, Color.white); Stretch(label.rectTransform, 8, 4, 8, 4); return button;
+        }
+
+        private Slider SliderControl(string name, Transform parent, float min, float max, UnityEngine.Events.UnityAction<float> changed)
+        {
+            Image root = Image(name, parent, Panel); SetHeight(root.rectTransform, 76);
+            Image fill = Image("Fill", root.transform, Accent);
+            fill.rectTransform.anchorMin = new Vector2(0, .28f); fill.rectTransform.anchorMax = new Vector2(1, .72f); fill.rectTransform.offsetMin = new Vector2(24, 0); fill.rectTransform.offsetMax = new Vector2(-24, 0);
+            Image handle = Image("Handle", root.transform, Color.white); handle.sprite = circleSprite; handle.preserveAspect = true; handle.rectTransform.sizeDelta = new Vector2(58, 58);
+            var slider = root.gameObject.AddComponent<Slider>(); slider.minValue = min; slider.maxValue = max; slider.fillRect = fill.rectTransform; slider.handleRect = handle.rectTransform; slider.targetGraphic = handle; slider.direction = Slider.Direction.LeftToRight;
+            slider.onValueChanged.AddListener(changed); return slider;
         }
 
         private static Transform Horizontal(string name, Transform parent, float height)

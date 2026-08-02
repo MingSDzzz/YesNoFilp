@@ -5,12 +5,12 @@ namespace DecisionDisc
 {
     public static class DecisionEngine
     {
-        public static bool Decide(float strength, DecisionMode mode)
+        public static bool Decide(float strength, DecisionMode mode, float baseYesProbability = 0.5f)
         {
             strength = UnityEngine.Mathf.Clamp01(strength);
             if (mode == DecisionMode.StrengthInfluences)
             {
-                double yesProbability = 0.25d + (0.5d * strength);
+                double yesProbability = EffectiveYesProbability(strength, mode, baseYesProbability);
                 return NextUnit() < yesProbability;
             }
 
@@ -23,6 +23,17 @@ namespace DecisionDisc
                 byte[] hash = sha.ComputeHash(entropy);
                 return (hash[0] & 1) == 0;
             }
+        }
+
+        public static float EffectiveYesProbability(float strength, DecisionMode mode, float baseYesProbability)
+        {
+            if (mode == DecisionMode.Fair5050) return 0.5f;
+            float baseline = UnityEngine.Mathf.Clamp01(baseYesProbability);
+            if (baseline <= 0f || baseline >= 1f) return baseline;
+            float force = UnityEngine.Mathf.Clamp01(strength);
+            float yesWeight = UnityEngine.Mathf.Lerp(0.5f, 1.5f, force);
+            float noWeight = UnityEngine.Mathf.Lerp(1.5f, 0.5f, force);
+            return (baseline * yesWeight) / (baseline * yesWeight + (1f - baseline) * noWeight);
         }
 
         private static double NextUnit()

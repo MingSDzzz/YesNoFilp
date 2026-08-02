@@ -17,6 +17,7 @@ namespace DecisionDisc
         public string timestampUtc;
         public string note;
         public string badgeId;
+        public float yesProbabilityUsed;
     }
 
     [Serializable]
@@ -43,6 +44,8 @@ namespace DecisionDisc
         public string yesImagePath;
         public string noImagePath;
         public bool builtIn;
+        public float yesProbability = 0.5f;
+        public bool probabilityConfigured;
     }
 
     [Serializable]
@@ -62,5 +65,6 @@ namespace DecisionDisc
         public DecisionMode Mode;
         public DateTime TimestampUtc;
         public string BadgeId;
+        public float YesProbabilityUsed;
     }
 }

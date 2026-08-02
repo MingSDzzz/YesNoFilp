@@ -30,9 +30,9 @@ namespace DecisionDisc.Editor
         {
             PlayerSettings.productName = "YES NO 决策徽章";
             PlayerSettings.companyName = "Personal";
-            PlayerSettings.bundleVersion = "1.1.0";
+            PlayerSettings.bundleVersion = "1.2.0";
             PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.personal.decisiondisc");
-            PlayerSettings.Android.bundleVersionCode = 2;
+            PlayerSettings.Android.bundleVersionCode = 3;
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.Portrait;
             PlayerSettings.allowedAutorotateToPortrait = true;
             PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
@@ -84,6 +84,10 @@ namespace DecisionDisc.Editor
             SetupAndroid();
             if (!File.Exists(ScenePath)) throw new Exception("Main scene was not created.");
             if (AssetDatabase.FindAssets("t:MonoScript DecisionDiscApp").Length == 0) throw new Exception("Runtime app script is missing.");
+            if (DecisionEngine.EffectiveYesProbability(0f, DecisionMode.StrengthInfluences, 1f) != 1f || DecisionEngine.EffectiveYesProbability(1f, DecisionMode.StrengthInfluences, 0f) != 0f)
+                throw new Exception("徽章概率端点验证失败：0%/100% 必须保持绝对结果。");
+            if (DecisionEngine.EffectiveYesProbability(0.5f, DecisionMode.Fair5050, 1f) != 0.5f)
+                throw new Exception("公平模式验证失败：必须保持 50/50。");
             Debug.Log("DECISION_DISC_VALIDATION_OK");
             List<string> missing = MissingAndroidComponents();
             Debug.Log(missing.Count == 0 ? "ANDROID_TOOLCHAIN_OK" : "ANDROID_TOOLCHAIN_MISSING=" + string.Join(",", missing));
