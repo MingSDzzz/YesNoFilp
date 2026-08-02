@@ -90,6 +90,11 @@ namespace DecisionDisc.Editor
         private static void CreateScene()
         {
             Directory.CreateDirectory(Path.GetDirectoryName(ScenePath));
+            if (File.Exists(ScenePath))
+            {
+                EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+                return;
+            }
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             var cameraObject = new GameObject("Main Camera", typeof(Camera));
             cameraObject.tag = "MainCamera";
