@@ -262,7 +262,7 @@ namespace DecisionDisc
             CardText(content, "隐私\n投掷结果只在确认弹窗中临时存在；选择不保存会立即删除。只有明确保存或导出才会写入文件。");
             CardText(content, "概率规则\n每个徽章可设置 0%–100% YES 基础概率。蓄力会围绕该概率调整结果；0% 必定 NO，100% 必定 YES。");
             CardText(content, "本地存储\n历史记录和徽章图片副本保存在 Application.persistentDataPath。");
-            CardText(content, "版本\nYesNoFilp 1.3.7 · 历史 JSON 格式 v1");
+            CardText(content, "版本\nYesNoFilp " + Application.version + " · 历史 JSON 格式 v1");
             return page;
         }
 

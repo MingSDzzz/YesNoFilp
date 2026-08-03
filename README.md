@@ -10,11 +10,11 @@
 
 <p align="center">
   <a href="https://github.com/MingSDzzz/YesNoFilp/releases/download/v1.3.8/YesNoFilp-v1.3.8-usage-guide.mp4">
-    <img src="Assets/Resources/Theme/app-launcher-icon.png" width="160" alt="点击观看使用演示">
+    <img src="docs/usage-demo.gif" width="320" alt="YES NO 决策徽章使用演示">
   </a>
 </p>
 
-点击上方图标观看 [34 秒中文操作演示](https://github.com/MingSDzzz/YesNoFilp/releases/download/v1.3.8/YesNoFilp-v1.3.8-usage-guide.mp4)。GitHub 不会在仓库首页自动播放 Release 视频，因此这里提供醒目的观看入口。
+主页会自动播放上方 15 秒操作预览。点击预览或[这里](https://github.com/MingSDzzz/YesNoFilp/releases/download/v1.3.8/YesNoFilp-v1.3.8-usage-guide.mp4)观看完整中文演示。
 
 ## 主要功能
 
