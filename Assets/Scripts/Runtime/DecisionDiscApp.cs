@@ -32,7 +32,7 @@ namespace DecisionDisc
         private InputField questionInput;
         private Transform homeFaces;
         private Transform throwStage;
-        private readonly List<Image> throwDiscs = new List<Image>();
+        private readonly List<CoinRenderView> throwDiscs = new List<CoinRenderView>();
         private readonly List<Text> throwDiscLabels = new List<Text>();
         private readonly List<Vector2> throwDiscBasePositions = new List<Vector2>();
         private Text status;
@@ -77,6 +77,8 @@ namespace DecisionDisc
         private PendingDecision pending;
         private DecisionMode mode = DecisionMode.Fair5050;
         private Sprite circleSprite;
+        private Texture2D defaultYesTexture;
+        private Texture2D defaultNoTexture;
         private readonly Dictionary<string, Sprite> spriteCache = new Dictionary<string, Sprite>();
         private readonly List<PendingDecision> sessionDecisions = new List<PendingDecision>();
 
@@ -201,7 +203,7 @@ namespace DecisionDisc
         private GameObject BuildHistory(Transform parent)
         {
             var page = Page("HistoryPage", parent);
-            Header(page.transform, "历史记录", "按时间排列；未保存内容只保留在本次运行中");
+            Header(page.transform, "历史记录", "仅显示你在结果弹窗中明确保存的记录");
             Button filter = Button("BadgeFilter", page.transform, "筛选徽章：全部", CycleHistoryFilter, Panel, 72);
             historyFilterText = filter.GetComponentInChildren<Text>();
             historyList = ScrollContent("HistoryScroll", page.transform, 0);
@@ -224,10 +226,10 @@ namespace DecisionDisc
             Button("RefreshLog", content, "刷新操作日志预览", RefreshLogPreview, Panel, 82);
             Button("ExportLog", content, "导出操作日志", ExportOperationLog, Accent, 88);
             logPreview = Label("暂无操作日志。", content, 21, TextAnchor.UpperLeft, PrimaryText); SetHeight(logPreview.rectTransform, 260);
-            CardText(content, "隐私\n当前问题、未保存结果和操作日志默认只在内存中。只有明确保存或导出才会写入文件。");
+            CardText(content, "隐私\n投掷结果只在确认弹窗中临时存在；选择不保存会立即删除。只有明确保存或导出才会写入文件。");
             CardText(content, "随机模式\n每个徽章可设置 0%–100% YES 基础概率。公平模式始终为 50/50；力度影响模式会围绕基础概率调整，0% 必定 NO、100% 必定 YES。");
             CardText(content, "本地存储\n历史记录和徽章图片副本保存在 Application.persistentDataPath。");
-            CardText(content, "版本\nYesNoFilp 1.3.2 · 历史 JSON 格式 v1");
+            CardText(content, "版本\nYesNoFilp 1.3.3 · 历史 JSON 格式 v1");
             return page;
         }
 
@@ -297,7 +299,7 @@ namespace DecisionDisc
             Text noteTitle = Label("备注（可选，可在历史记录中继续修改）", savePromptPanel.transform, 25, TextAnchor.MiddleLeft, Color.white); SetHeight(noteTitle.rectTransform, 46);
             savePromptNote = NoteInput("输入本次备注", savePromptPanel.transform, 110);
             Button("ConfirmSave", savePromptPanel.transform, "保存本次记录", SaveCurrent, Accent, 88);
-            Button("KeepMemoryOnly", savePromptPanel.transform, "不保存，仅保留到本次关闭应用", () => { savePromptPanel.SetActive(false); pending = null; ResetHomeVisuals(); }, Panel, 82);
+            Button("DiscardResult", savePromptPanel.transform, "不保存并删除本次结果", DiscardCurrent, Panel, 82);
             savePromptPanel.SetActive(false);
         }
 
@@ -351,7 +353,6 @@ namespace DecisionDisc
             bool yes = yesWins > noWins;
             pendingHoldSeconds = heldSeconds;
             pending = new PendingDecision { Question = question, IsYes = yes, Strength = strength, StrengthSource = source, Mode = mode, TimestampUtc = DateTime.UtcNow, BadgeId = selectedBadge.id, YesProbabilityUsed = effectiveProbability, SeriesLength = seriesLength, YesWins = yesWins, NoWins = noWins, RoundResults = new string(rounds) };
-            sessionDecisions.Insert(0, pending);
             UserActionLog.Add("开始投掷；问题=" + (string.IsNullOrEmpty(question) ? "（未填写）" : question) + "；赛制=" + SeriesLabel(seriesLength) + "；徽章=" + selectedBadge.name + "；力度=" + Mathf.RoundToInt(strength * 100) + "%");
             StopAllCoroutines(); StartCoroutine(AnimateThrow(pending));
         }
@@ -366,68 +367,77 @@ namespace DecisionDisc
             PrepareThrowDiscs(value.SeriesLength, animationBadge);
             Canvas.ForceUpdateCanvases();
             throwDiscBasePositions.Clear();
-            for (int i = 0; i < throwDiscs.Count; i++) throwDiscBasePositions.Add(throwDiscs[i].rectTransform.anchoredPosition);
+            for (int i = 0; i < throwDiscs.Count; i++) throwDiscBasePositions.Add(throwDiscs[i].RectTransform.anchoredPosition);
             status.text = "投掷中…";
-            int[] lastFaces = new int[throwDiscs.Count]; for (int i = 0; i < lastFaces.Length; i++) lastFaces[i] = -1;
             for (float t = 0; t < duration; t += Time.unscaledDeltaTime)
             {
                 float p = t / duration;
                 for (int i = 0; i < throwDiscs.Count; i++)
                 {
-                    Image item = throwDiscs[i];
+                    CoinRenderView item = throwDiscs[i];
                     float stagger = i * .018f;
                     float localP = Mathf.Clamp01((p - stagger) / Mathf.Max(.8f, 1f - stagger));
-                    float y;
-                    float rotationDegrees;
-                    Vector3 scale = Vector3.one;
+                    Vector2 travel;
+                    float flipDegrees;
+                    float tiltDegrees;
+                    float rollDegrees;
+                    float uniformScale = 1f;
+                    bool roundYes = i < value.RoundResults.Length && value.RoundResults[i] == 'Y';
+                    int finalHalfTurns = 8 + Mathf.RoundToInt(Mathf.Lerp(0f, 6f, Mathf.Max(holdFactor, value.Strength * .7f)));
+                    if ((finalHalfTurns % 2 == 0) != roundYes) finalHalfTurns++;
+                    float finalFlipDegrees = finalHalfTurns * 180f;
 
                     if (localP < .12f)
                     {
-                        // A short anticipation makes the release feel deliberate instead of instant.
                         float anticipation = Mathf.SmoothStep(0f, 1f, localP / .12f);
-                        y = -24f * anticipation;
-                        rotationDegrees = anticipation * 45f;
-                        scale = new Vector3(1f + .06f * anticipation, 1f - .12f * anticipation, 1f);
+                        travel = new Vector2(-42f, -34f) * anticipation;
+                        flipDegrees = -22f * anticipation;
+                        tiltDegrees = 8f * anticipation;
+                        rollDegrees = -6f * anticipation;
+                        uniformScale = 1f - .05f * anticipation;
                     }
                     else if (localP < .86f)
                     {
                         float flight = (localP - .12f) / .74f;
-                        float height01 = flight < .5f
-                            ? 1f - Mathf.Pow(1f - flight * 2f, 2.35f)
-                            : 1f - Mathf.Pow((flight - .5f) * 2f, 1.65f);
-                        y = height01 * Mathf.Lerp(270f, 680f, holdFactor);
-                        float turns = Mathf.Lerp(4.5f, 9f, Mathf.Max(holdFactor, value.Strength * .7f));
-                        rotationDegrees = 45f + flight * turns * 360f + i * 24f;
-                        float edge = Mathf.Abs(Mathf.Cos(rotationDegrees * Mathf.Deg2Rad));
-                        scale = new Vector3(Mathf.Max(.1f, edge), 1f, 1f);
+                        // Keep the apex inside the portrait safe area. The hold still
+                        // changes both height and duration, but the coin never clips at
+                        // the top of a 720 x 1280 emulator/device viewport.
+                        float height = Mathf.Sin(flight * Mathf.PI) * Mathf.Lerp(190f, 280f, holdFactor);
+                        float direction = i % 2 == 0 ? 1f : -1f;
+                        float sideways = Mathf.Lerp(-70f * direction, 95f * direction, Mathf.SmoothStep(0f, 1f, flight));
+                        travel = new Vector2(sideways, height);
+                        float rotationProgress = Mathf.SmoothStep(0f, 1f, flight);
+                        flipDegrees = Mathf.Lerp(-22f, finalFlipDegrees, rotationProgress);
+                        tiltDegrees = Mathf.Sin(flight * Mathf.PI) * 15f * direction;
+                        rollDegrees = Mathf.Sin(flight * Mathf.PI) * 10f * direction;
+                        uniformScale = 1f + Mathf.Sin(flight * Mathf.PI) * .08f;
                     }
                     else
                     {
                         float settle = (localP - .86f) / .14f;
                         float damping = 1f - settle;
-                        y = Mathf.Abs(Mathf.Sin(settle * Mathf.PI * 2f)) * 34f * damping;
-                        float turns = Mathf.Lerp(4.5f, 9f, Mathf.Max(holdFactor, value.Strength * .7f));
-                        rotationDegrees = 45f + turns * 360f + i * 24f;
+                        float direction = i % 2 == 0 ? 1f : -1f;
+                        travel = new Vector2(Mathf.Lerp(95f * direction, 0f, Mathf.SmoothStep(0f, 1f, settle)), Mathf.Abs(Mathf.Sin(settle * Mathf.PI * 2f)) * 30f * damping);
+                        flipDegrees = finalFlipDegrees + Mathf.Sin(settle * Mathf.PI * 2f) * 6f * damping;
+                        tiltDegrees = Mathf.Lerp(8f * direction, 0f, settle);
+                        rollDegrees = Mathf.Sin(settle * Mathf.PI) * 5f * direction * damping;
                         float squash = Mathf.Sin(settle * Mathf.PI) * damping;
-                        scale = new Vector3(1f + .08f * squash, 1f - .08f * squash, 1f);
+                        uniformScale = 1f + .04f * squash;
                     }
 
-                    bool faceYes = localP >= .86f && i < value.RoundResults.Length
-                        ? value.RoundResults[i] == 'Y'
-                        : Mathf.FloorToInt((rotationDegrees + 90f) / 180f) % 2 == 0;
-                    int faceIndex = faceYes ? 1 : 0;
-                    if (lastFaces[i] != faceIndex) { RenderDiscFace(item, throwDiscLabels[i], faceYes, animationBadge); lastFaces[i] = faceIndex; }
-                    item.rectTransform.anchoredPosition = throwDiscBasePositions[i] + Vector2.up * y;
-                    item.rectTransform.localEulerAngles = new Vector3(0, rotationDegrees, Mathf.Sin(localP * Mathf.PI) * (i % 2 == 0 ? 16f : -16f));
-                    item.rectTransform.localScale = scale;
+                    item.SetPose(flipDegrees, tiltDegrees, rollDegrees);
+                    item.RectTransform.anchoredPosition = throwDiscBasePositions[i] + travel;
+                    item.RectTransform.localScale = Vector3.one * uniformScale;
                 }
                 yield return null;
             }
             for (int i = 0; i < throwDiscs.Count; i++)
             {
-                Image item = throwDiscs[i]; item.rectTransform.anchoredPosition = throwDiscBasePositions[i]; item.rectTransform.localEulerAngles = Vector3.zero; item.rectTransform.localScale = Vector3.one;
+                CoinRenderView item = throwDiscs[i]; item.RectTransform.anchoredPosition = throwDiscBasePositions[i]; item.RectTransform.localScale = Vector3.one;
                 bool roundYes = i < value.RoundResults.Length && value.RoundResults[i] == 'Y';
-                RenderDiscFace(item, throwDiscLabels[i], roundYes, animationBadge);
+                item.SetPose(roundYes ? 0f : 180f, 0f, 0f);
+                throwDiscLabels[i].text = roundYes ? "YES" : "NO";
+                throwDiscLabels[i].color = roundYes ? Yes : No;
             }
             status.text = (value.IsYes ? "YES" : "NO") + "  ·  " + SeriesScore(value) + "  ·  力度 " + Mathf.RoundToInt(value.Strength * 100) + "%\n尚未保存";
             UserActionLog.Add("投掷完成；结果=" + (value.IsYes ? "YES" : "NO"));
@@ -447,6 +457,16 @@ namespace DecisionDisc
             UserActionLog.Add("明确保存本次记录；结果=" + (pending.IsYes ? "YES" : "NO"));
             pending = null; savePromptPanel.SetActive(false); ResetHomeVisuals();
             status.text = "本次记录已永久保存。"; RefreshHistory();
+        }
+
+        private void DiscardCurrent()
+        {
+            if (pending != null) UserActionLog.Add("不保存并删除本次结果；结果=" + (pending.IsYes ? "YES" : "NO"));
+            pending = null;
+            savePromptPanel.SetActive(false);
+            ResetHomeVisuals();
+            status.text = "本次结果已删除。";
+            RefreshHistory();
         }
 
         private void ToggleMode()
@@ -493,47 +513,35 @@ namespace DecisionDisc
             if (badgeList == null) return; Clear(badgeList);
             UpdateSelectedBadgeText();
             BadgeDefinition selected = store.SelectedBadge();
-            Text currentTitle = Label("当前使用徽章", badgeList, 30, TextAnchor.MiddleLeft, Accent); SetHeight(currentTitle.rectTransform, 56);
-            AddBadgeCard(selected, true);
-            Text waitingTitle = Label("待使用徽章 · 可调整顺序", badgeList, 30, TextAnchor.MiddleLeft, Accent); SetHeight(waitingTitle.rectTransform, 56);
             foreach (BadgeDefinition badge in store.Badges.badges)
-            {
-                if (badge.id != selected.id) AddBadgeCard(badge, false);
-            }
-            badgeStatus.text = "当前共有 " + store.Badges.badges.Count + " 个徽章。新创建的徽章会显示在列表顶部。";
+                AddBadgeCard(badge, badge.id == selected.id);
+            badgeStatus.text = "共 " + store.Badges.badges.Count + " 个徽章 · 按住卡片上下拖动即可排序";
             StartCoroutine(RefreshBadgeListLayout());
         }
 
         private void AddBadgeCard(BadgeDefinition badge, bool current)
         {
-            var card = VerticalCard(current ? "CurrentBadge" : "CandidateBadge", badgeList, current ? 450 : 520);
-            Text name = Label((current ? "●  使用中  " : "○  待使用  ") + badge.name, card, 32, TextAnchor.MiddleLeft, current ? Accent : PrimaryText); SetHeight(name.rectTransform, 54);
+            var card = VerticalCard("BadgeCard", badgeList, 450);
+            Text name = Label((current ? "●  使用中 · " : "☰  ") + badge.name, card, 32, TextAnchor.MiddleLeft, current ? Accent : PrimaryText); SetHeight(name.rectTransform, 54);
             var previews = Horizontal("FacePreviews", card, 160);
             AddFacePreview(previews, badge, true, !badge.builtIn);
             AddFacePreview(previews, badge, false, !badge.builtIn);
             var actions = Horizontal("BadgeActions", card, 68);
             Button use = Button("Use", actions, current ? "当前使用中" : "设为当前徽章", () => SelectBadgeForUse(badge), current ? Panel : Accent, 66); use.interactable = !current;
             Button("OpenDetail", actions, "徽章设置  ›", () => OpenBadgeDetail(badge), Panel, 66);
-            if (!current)
-            {
-                var orderActions = Horizontal("OrderActions", card, 58);
-                Button("MoveUp", orderActions, "↑ 上移", () => MoveVisibleBadge(badge, -1), Panel, 56);
-                Button("MoveDown", orderActions, "↓ 下移", () => MoveVisibleBadge(badge, 1), Panel, 56);
-            }
             Text probability = Label("YES 基础概率：" + Mathf.RoundToInt(badge.yesProbability * 100) + "%  ·  " + (badge.builtIn ? "默认徽章" : "点击图片可替换"), card, 21, TextAnchor.MiddleLeft, Accent); SetHeight(probability.rectTransform, 42);
             GetBadgeStats(badge.id, out int total, out int yesCount, out int noCount);
             float yesPercent = total == 0 ? 0f : yesCount * 100f / total;
             Text stats = Label("使用 " + total + " 次  ·  YES " + yesCount + "（" + yesPercent.ToString("0.#") + "%）  ·  NO " + noCount + "（" + (total == 0 ? 0f : 100f - yesPercent).ToString("0.#") + "%）", card, 21, TextAnchor.MiddleLeft, SecondaryText); SetHeight(stats.rectTransform, 42);
+            BadgeReorderDragHandler drag = card.gameObject.AddComponent<BadgeReorderDragHandler>();
+            drag.Bind((RectTransform)card, badgeList, targetIndex => ReorderBadge(badge, targetIndex));
         }
 
-        private void MoveVisibleBadge(BadgeDefinition badge, int direction)
+        private void ReorderBadge(BadgeDefinition badge, int targetIndex)
         {
-            List<BadgeDefinition> candidates = store.Badges.badges.FindAll(item => item.id != store.Badges.selectedBadgeId);
-            int visibleIndex = candidates.IndexOf(badge), targetVisible = visibleIndex + direction;
-            if (visibleIndex < 0 || targetVisible < 0 || targetVisible >= candidates.Count) return;
-            BadgeDefinition target = candidates[targetVisible];
-            int from = store.Badges.badges.IndexOf(badge), to = store.Badges.badges.IndexOf(target);
-            store.MoveBadge(badge.id, to - from); UserActionLog.Add("调整徽章顺序：" + badge.name); RefreshBadges();
+            store.MoveBadgeToIndex(badge.id, targetIndex);
+            UserActionLog.Add("拖动调整徽章顺序：" + badge.name + " → " + (targetIndex + 1));
+            RefreshBadges();
         }
 
         private IEnumerator RefreshBadgeListLayout()
@@ -670,7 +678,7 @@ namespace DecisionDisc
                 if (!string.IsNullOrEmpty(historyFilterBadgeId) && item.BadgeId != historyFilterBadgeId) continue;
                 AddHistoryCard(item); visible++;
             }
-            if (visible == 0) CardText(historyList, "当前筛选条件下暂无记录。投掷后的结果会按时间显示在这里。");
+            if (visible == 0) CardText(historyList, "当前筛选条件下暂无已保存记录。只有在结果弹窗中点击保存才会显示在这里。");
         }
 
         private void AddHistoryCard(HistoryViewItem item)
@@ -791,11 +799,17 @@ namespace DecisionDisc
             for (int i = 0; i < count; i++)
             {
                 Transform cell = VerticalContainer("ThrowCell", throwStage, true);
-                cell.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
-                Image image = Image("ThrowDisc", cell, Yes); image.sprite = circleSprite; image.preserveAspect = true; SetHeight(image.rectTransform, imageSize);
-                Text label = Label("YES", cell, count == 5 ? 28 : 38, TextAnchor.MiddleCenter, Yes); SetHeight(label.rectTransform, 50);
-                throwDiscs.Add(image); throwDiscLabels.Add(label);
-                RenderDiscFace(image, label, true, badge);
+                VerticalLayoutGroup cellLayout = cell.GetComponent<VerticalLayoutGroup>();
+                cellLayout.childAlignment = TextAnchor.MiddleCenter; cellLayout.childForceExpandWidth = false;
+                GameObject renderObject = new GameObject("ThrowCoin3D", typeof(RectTransform), typeof(RawImage), typeof(CoinRenderView));
+                renderObject.transform.SetParent(cell, false);
+                RectTransform renderRect = (RectTransform)renderObject.transform; SetHeight(renderRect, imageSize); SetWidth(renderRect, imageSize);
+                RawImage rawImage = renderObject.GetComponent<RawImage>();
+                CoinRenderView coin = renderObject.GetComponent<CoinRenderView>();
+                int resolution = count == 5 ? 256 : 384;
+                coin.Initialize(rawImage, FaceTexture(badge, true), FaceTexture(badge, false), Hex("687386"), 20 + i, resolution);
+                Text label = Label("", cell, count == 5 ? 28 : 38, TextAnchor.MiddleCenter, SecondaryText); SetHeight(label.rectTransform, 50);
+                throwDiscs.Add(coin); throwDiscLabels.Add(label);
             }
         }
 
@@ -860,6 +874,14 @@ namespace DecisionDisc
             Image preview = Image(yesFace ? "YesPreview" : "NoPreview", container, sprite == null ? (yesFace ? Yes : No) : Color.white);
             preview.sprite = sprite ?? circleSprite; preview.preserveAspect = true;
             SetFlexible(preview.rectTransform);
+            if (sprite == null)
+            {
+                Text defaultFaceText = Label(yesFace ? "YES" : "NO", preview.transform, 52, TextAnchor.MiddleCenter, Color.white);
+                Stretch(defaultFaceText.rectTransform, 10, 10, 10, 10);
+                Shadow shadow = defaultFaceText.gameObject.AddComponent<Shadow>();
+                shadow.effectColor = new Color(0f, 0f, 0f, .18f);
+                shadow.effectDistance = new Vector2(2f, -2f);
+            }
             Text face = Label((yesFace ? "YES" : "NO") + (sprite == null ? " · 默认" : ""), container, 34, TextAnchor.MiddleCenter, yesFace ? Yes : No); SetHeight(face.rectTransform, 50);
             if (clickable)
             {
@@ -904,13 +926,74 @@ namespace DecisionDisc
             return DateTime.TryParse(utc, out DateTime value) ? value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") : utc;
         }
 
-        private void RenderDiscFace(Image image, Text label, bool yesFace, BadgeDefinition badge)
+        private Texture FaceTexture(BadgeDefinition badge, bool yesFace)
         {
             string path = yesFace ? badge.yesImagePath : badge.noImagePath;
             Sprite loaded = LoadSprite(path);
-            image.sprite = loaded ?? circleSprite;
-            image.color = loaded == null ? (yesFace ? Yes : No) : Color.white;
-            label.text = yesFace ? "YES" : "NO"; label.color = yesFace ? Yes : No;
+            if (loaded != null) return loaded.texture;
+            if (yesFace && defaultYesTexture == null) defaultYesTexture = CreateDefaultFaceTexture(true);
+            if (!yesFace && defaultNoTexture == null) defaultNoTexture = CreateDefaultFaceTexture(false);
+            return yesFace ? defaultYesTexture : defaultNoTexture;
+        }
+
+        private static Texture2D CreateDefaultFaceTexture(bool yesFace)
+        {
+            const int size = 512;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                name = yesFace ? "Generated YES Face" : "Generated NO Face",
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            Color32 fill = yesFace ? Yes : No;
+            var pixels = new Color32[size * size];
+            float center = (size - 1) * .5f, radius = size * .492f;
+            for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float distance = Vector2.Distance(new Vector2(x, y), new Vector2(center, center));
+                if (distance <= radius - 2f) pixels[y * size + x] = fill;
+                else if (distance < radius + 1f)
+                {
+                    Color edge = fill; edge.a = Mathf.Clamp01((radius + 1f - distance) / 3f);
+                    pixels[y * size + x] = edge;
+                }
+            }
+
+            string word = yesFace ? "YES" : "NO";
+            const int glyphWidth = 5, glyphHeight = 7, pixelScale = 22, glyphGap = 2;
+            int totalUnits = word.Length * glyphWidth + (word.Length - 1) * glyphGap;
+            int startX = (size - totalUnits * pixelScale) / 2;
+            int startY = (size - glyphHeight * pixelScale) / 2;
+            for (int character = 0; character < word.Length; character++)
+            {
+                string[] glyph = FaceGlyph(word[character]);
+                int glyphX = startX + character * (glyphWidth + glyphGap) * pixelScale;
+                for (int row = 0; row < glyphHeight; row++)
+                for (int column = 0; column < glyphWidth; column++)
+                {
+                    if (glyph[row][column] != '1') continue;
+                    int baseX = glyphX + column * pixelScale;
+                    int baseY = startY + (glyphHeight - 1 - row) * pixelScale;
+                    for (int py = 2; py < pixelScale - 2; py++)
+                    for (int px = 2; px < pixelScale - 2; px++)
+                        pixels[(baseY + py) * size + baseX + px] = new Color32(255, 255, 255, 255);
+                }
+            }
+            texture.SetPixels32(pixels); texture.Apply(false, false);
+            return texture;
+        }
+
+        private static string[] FaceGlyph(char value)
+        {
+            switch (value)
+            {
+                case 'Y': return new[] { "10001", "10001", "01010", "00100", "00100", "00100", "00100" };
+                case 'E': return new[] { "11111", "10000", "10000", "11110", "10000", "10000", "11111" };
+                case 'S': return new[] { "01111", "10000", "10000", "01110", "00001", "00001", "11110" };
+                case 'N': return new[] { "10001", "11001", "11001", "10101", "10011", "10011", "10001" };
+                default: return new[] { "01110", "10001", "10001", "10001", "10001", "10001", "01110" };
+            }
         }
 
         private void ShowPage(int index)

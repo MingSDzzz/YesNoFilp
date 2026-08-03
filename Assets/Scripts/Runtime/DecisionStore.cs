@@ -136,6 +136,18 @@ namespace DecisionDisc
             Badges.badges.RemoveAt(index); Badges.badges.Insert(target, badge); SaveBadges();
         }
 
+        public void MoveBadgeToIndex(string id, int targetIndex)
+        {
+            int index = Badges.badges.FindIndex(item => item.id == id);
+            if (index < 0) return;
+            targetIndex = Mathf.Clamp(targetIndex, 0, Badges.badges.Count - 1);
+            if (targetIndex == index) return;
+            BadgeDefinition badge = Badges.badges[index];
+            Badges.badges.RemoveAt(index);
+            Badges.badges.Insert(targetIndex, badge);
+            SaveBadges();
+        }
+
         public void CopyBadgeImage(BadgeDefinition badge, bool yesFace, string sourcePath, float zoom = 1f, float offsetX = 0f, float offsetY = 0f)
         {
             if (badge == null || badge.builtIn || !File.Exists(sourcePath)) return;

@@ -12,6 +12,7 @@ This repository is the standalone **Decision Disc / YES NO Flip** Unity project.
 - Never persist an unsaved question or throw result. History is written only after the user presses **Save this record**.
 - Badge images selected by the user must be copied into `Application.persistentDataPath`, so deleting the original source file does not remove them from the app.
 - User-facing copy should be Simplified Chinese unless a specific feature explicitly requires another language.
+- Preserve `Assets/Scripts/Runtime/UnitySplashSkipper.cs` and its `.meta`; do not delete, overwrite, or silently replace this user-authorized Android startup logic.
 
 ## Product and UI
 
@@ -22,7 +23,8 @@ This repository is the standalone **Decision Disc / YES NO Flip** Unity project.
 - The home page must show the active badge and provide a direct route to switch badges. Selecting a complete badge from the list must update the active badge immediately.
 - Badge management must expose both face previews and allow renaming, replacing either face, selecting, and deleting each custom badge.
 - During a throw, alternate the current badge's real YES and NO faces as the disc rotates.
-- The history page must distinguish session-only in-memory throws from explicitly saved persistent records.
+- A throw exists only in the result prompt until the user chooses an action. Saving adds it to persistent history; choosing not to save immediately deletes it and it must not appear in history or remain in session memory.
+- Show all badges in one unified management list. Mark the selected badge in-place and use direct drag reordering instead of separate current/candidate sections or move-up/move-down buttons.
 - Diagnostic operation logs stay in memory by default and are written only after the user explicitly requests an export.
 
 ## Android signing

@@ -29,9 +29,9 @@ namespace DecisionDisc.Editor
         {
             PlayerSettings.productName = "YES NO 决策徽章";
             PlayerSettings.companyName = "Personal";
-            PlayerSettings.bundleVersion = "1.3.2";
+            PlayerSettings.bundleVersion = "1.3.3";
             PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.personal.decisiondisc");
-            PlayerSettings.Android.bundleVersionCode = 8;
+            PlayerSettings.Android.bundleVersionCode = 9;
             // Unity 2022.3 Personal requires the Unity splash screen. Keep it static,
             // use the app's light background, and avoid claiming it can be disabled.
             PlayerSettings.SplashScreen.show = true;
@@ -87,6 +87,44 @@ namespace DecisionDisc.Editor
             if (!File.Exists(absoluteApk) || new FileInfo(absoluteApk).Length == 0)
                 throw new BuildFailedException("Unity reported success but no non-empty APK exists at " + absoluteApk);
             Debug.Log("DECISION_DISC_APK=" + absoluteApk);
+        }
+
+        // Used by automated emulator smoke tests when an older app with an
+        // incompatible signature already occupies the production package name.
+        public static void BuildEmulatorTestApk()
+        {
+            SetupAndroid();
+            string productionName = PlayerSettings.productName;
+            string productionIdentifier = PlayerSettings.GetApplicationIdentifier(BuildTargetGroup.Android);
+            bool productionCustomKeystore = PlayerSettings.Android.useCustomKeystore;
+            try
+            {
+                PlayerSettings.productName = productionName + "（测试）";
+                PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, productionIdentifier + ".uitest");
+                PlayerSettings.Android.useCustomKeystore = false;
+                if (!EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android, BuildTarget.Android))
+                    throw new BuildFailedException("Unity could not switch to the Android build target.");
+                string output = Path.GetFullPath("Builds/YesNoFilp-ui-test-v" + PlayerSettings.bundleVersion + ".apk");
+                Directory.CreateDirectory(Path.GetDirectoryName(output));
+                BuildReport report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+                {
+                    scenes = new[] { ScenePath },
+                    locationPathName = output,
+                    target = BuildTarget.Android,
+                    targetGroup = BuildTargetGroup.Android,
+                    options = BuildOptions.None
+                });
+                if (report.summary.result != BuildResult.Succeeded)
+                    throw new BuildFailedException("Emulator test APK failed: " + report.summary.result);
+                Debug.Log("DECISION_DISC_TEST_APK=" + output);
+            }
+            finally
+            {
+                PlayerSettings.productName = productionName;
+                PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, productionIdentifier);
+                PlayerSettings.Android.useCustomKeystore = productionCustomKeystore;
+                AssetDatabase.SaveAssets();
+            }
         }
 
         public static void ValidateProject()
