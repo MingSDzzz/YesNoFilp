@@ -199,6 +199,8 @@ namespace DecisionDisc
 
         private void EnsureClassicBadge()
         {
+            Badges.badges.RemoveAll(item => item.id == "sunmoon");
+            if (Badges.selectedBadgeId == "sunmoon") Badges.selectedBadgeId = "classic";
             if (Badges.badges.Find(item => item.id == "classic") == null)
                 Badges.badges.Insert(0, new BadgeDefinition { id = "classic", name = "星光 YES / NO", builtIn = true, visualPreset = "stars", yesProbability = 0.5f, probabilityConfigured = true });
             BadgeDefinition classic = Badges.badges.Find(item => item.id == "classic");
@@ -207,8 +209,6 @@ namespace DecisionDisc
                 classic.name = "星光 YES / NO";
                 classic.visualPreset = "stars";
             }
-            if (Badges.badges.Find(item => item.id == "sunmoon") == null)
-                Badges.badges.Add(new BadgeDefinition { id = "sunmoon", name = "日月 YES / NO", builtIn = true, visualPreset = "sunmoon", yesProbability = 0.5f, probabilityConfigured = true });
             foreach (BadgeDefinition badge in Badges.badges)
             {
                 if (string.IsNullOrEmpty(badge.visualPreset)) badge.visualPreset = "stars";

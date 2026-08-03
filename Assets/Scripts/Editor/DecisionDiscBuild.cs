@@ -29,9 +29,9 @@ namespace DecisionDisc.Editor
         {
             PlayerSettings.productName = "YES NO 决策徽章";
             PlayerSettings.companyName = "Personal";
-            PlayerSettings.bundleVersion = "1.3.5";
+            PlayerSettings.bundleVersion = "1.3.6";
             PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.personal.decisiondisc");
-            PlayerSettings.Android.bundleVersionCode = 11;
+            PlayerSettings.Android.bundleVersionCode = 12;
             // Unity 2022.3 Personal requires the Unity splash screen. Keep it static,
             // use the app's light background, and avoid claiming it can be disabled.
             PlayerSettings.SplashScreen.show = true;

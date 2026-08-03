@@ -83,10 +83,8 @@ namespace DecisionDisc
         private Texture2D defaultNoTexture;
         private Sprite defaultYesSprite;
         private Sprite defaultNoSprite;
-        private Texture2D sunYesTexture;
-        private Texture2D moonNoTexture;
-        private Sprite sunYesSprite;
-        private Sprite moonNoSprite;
+        private Texture2D throwButtonIconTexture;
+        private Sprite throwButtonIconSprite;
         private readonly Dictionary<string, Sprite> spriteCache = new Dictionary<string, Sprite>();
         private readonly List<PendingDecision> sessionDecisions = new List<PendingDecision>();
 
@@ -109,8 +107,7 @@ namespace DecisionDisc
             softRectSprite = CreateRoundedRectSprite();
             defaultYesTexture = Resources.Load<Texture2D>("Theme/default-yes-symbol");
             defaultNoTexture = Resources.Load<Texture2D>("Theme/default-no-symbol");
-            sunYesTexture = Resources.Load<Texture2D>("Theme/preset-sun-yes");
-            moonNoTexture = Resources.Load<Texture2D>("Theme/preset-moon-no");
+            throwButtonIconTexture = Resources.Load<Texture2D>("Theme/throw-button-icon");
             store = new DecisionStore();
             files = gameObject.AddComponent<AndroidFileBridge>();
             files.TextImported += PreviewImport;
@@ -211,7 +208,16 @@ namespace DecisionDisc
             chargeBackground.sprite = softRectSprite; chargeBackground.type = UnityEngine.UI.Image.Type.Sliced;
             Outline chargeEdge = chargeObject.AddComponent<Outline>(); chargeEdge.effectColor = new Color(Accent.r, Accent.g, Accent.b, .35f); chargeEdge.effectDistance = new Vector2(2f, -2f);
             var fill = Image("Fill", chargeObject.transform, Accent); Stretch(fill.rectTransform); fill.type = UnityEngine.UI.Image.Type.Filled; fill.fillMethod = UnityEngine.UI.Image.FillMethod.Horizontal; fill.fillAmount = 0;
-            var chargeLabel = Label("按住蓄力，松开投掷", chargeObject.transform, 40, TextAnchor.MiddleCenter, PrimaryText); Stretch(chargeLabel.rectTransform);
+            Image launchIcon = Image("ThrowIcon", chargeObject.transform, Color.white);
+            if (throwButtonIconTexture != null)
+            {
+                throwButtonIconSprite = Sprite.Create(throwButtonIconTexture, new Rect(0, 0, throwButtonIconTexture.width, throwButtonIconTexture.height), new Vector2(.5f, .5f), 100f);
+                launchIcon.sprite = throwButtonIconSprite;
+            }
+            launchIcon.preserveAspect = true; launchIcon.raycastTarget = false;
+            launchIcon.rectTransform.anchorMin = launchIcon.rectTransform.anchorMax = new Vector2(0f, .5f);
+            launchIcon.rectTransform.pivot = new Vector2(0f, .5f); launchIcon.rectTransform.anchoredPosition = new Vector2(18f, 0f); launchIcon.rectTransform.sizeDelta = new Vector2(104f, 104f);
+            var chargeLabel = Label("按住蓄力，松开投掷", chargeObject.transform, 40, TextAnchor.MiddleCenter, PrimaryText); Stretch(chargeLabel.rectTransform, 116, 0, 18, 0);
             var charge = chargeObject.GetComponent<ChargeThrowButton>(); charge.Label = chargeLabel; charge.Fill = fill; charge.Released += Throw;
 
             status = Label("尚未投掷；结果默认不会保存", page.transform, 30, TextAnchor.MiddleCenter, SecondaryText); SetHeight(status.rectTransform, 70);
@@ -258,7 +264,7 @@ namespace DecisionDisc
             CardText(content, "隐私\n投掷结果只在确认弹窗中临时存在；选择不保存会立即删除。只有明确保存或导出才会写入文件。");
             CardText(content, "随机模式\n每个徽章可设置 0%–100% YES 基础概率。公平模式始终为 50/50；力度影响模式会围绕基础概率调整，0% 必定 NO、100% 必定 YES。");
             CardText(content, "本地存储\n历史记录和徽章图片副本保存在 Application.persistentDataPath。");
-            CardText(content, "版本\nYesNoFilp 1.3.5 · 历史 JSON 格式 v1");
+            CardText(content, "版本\nYesNoFilp 1.3.6 · 历史 JSON 格式 v1");
             return page;
         }
 
@@ -602,25 +608,28 @@ namespace DecisionDisc
             BadgeDefinition selected = store.SelectedBadge();
             foreach (BadgeDefinition badge in store.Badges.badges)
                 AddBadgeCard(badge, badge.id == selected.id);
-            badgeStatus.text = "共 " + store.Badges.badges.Count + " 个徽章 · 按住卡片上下拖动即可排序";
+            badgeStatus.text = "共 " + store.Badges.badges.Count + " 个徽章 · 按住左上角 ☰ 上下拖动排序";
             StartCoroutine(RefreshBadgeListLayout());
         }
 
         private void AddBadgeCard(BadgeDefinition badge, bool current)
         {
-            var card = VerticalCard("BadgeCard", badgeList, 450);
-            Text name = Label((current ? "●  使用中 · " : "☰  ") + badge.name, card, 32, TextAnchor.MiddleLeft, current ? Accent : PrimaryText); SetHeight(name.rectTransform, 54);
-            var previews = Horizontal("FacePreviews", card, 160);
+            var card = VerticalCard("BadgeCard", badgeList, 440);
+            Transform header = Horizontal("BadgeHeader", card, 46);
+            HorizontalLayoutGroup headerLayout = header.GetComponent<HorizontalLayoutGroup>(); headerLayout.childForceExpandWidth = false;
+            Text handle = Label("☰", header, 35, TextAnchor.MiddleCenter, Accent); SetWidth(handle.rectTransform, 52);
+            Text name = Label((current ? "使用中 · " : "") + badge.name, header, 31, TextAnchor.MiddleLeft, current ? Accent : PrimaryText);
+            LayoutElement nameLayout = name.gameObject.AddComponent<LayoutElement>(); nameLayout.flexibleWidth = 1f;
+            var previews = Horizontal("FacePreviews", card, 220);
             AddFacePreview(previews, badge, true, !badge.builtIn);
             AddFacePreview(previews, badge, false, !badge.builtIn);
-            var actions = Horizontal("BadgeActions", card, 68);
-            Button use = Button("Use", actions, current ? "当前使用中" : "设为当前徽章", () => SelectBadgeForUse(badge), current ? Panel : Accent, 66); use.interactable = !current;
-            Button("OpenDetail", actions, "徽章设置  ›", () => OpenBadgeDetail(badge), Panel, 66);
-            Text probability = Label("YES 基础概率：" + Mathf.RoundToInt(badge.yesProbability * 100) + "%  ·  " + (badge.builtIn ? "默认徽章" : "点击图片可替换"), card, 21, TextAnchor.MiddleLeft, Accent); SetHeight(probability.rectTransform, 42);
+            var actions = Horizontal("BadgeActions", card, 62);
+            Button use = Button("Use", actions, current ? "当前使用中" : "设为当前徽章", () => SelectBadgeForUse(badge), current ? Panel : Accent, 60); use.interactable = !current;
+            Button("OpenDetail", actions, "徽章设置  ›", () => OpenBadgeDetail(badge), Panel, 60);
             GetBadgeStats(badge.id, out int total, out int yesCount, out int noCount);
             float yesPercent = total == 0 ? 0f : yesCount * 100f / total;
-            Text stats = Label("使用 " + total + " 次  ·  YES " + yesCount + "（" + yesPercent.ToString("0.#") + "%）  ·  NO " + noCount + "（" + (total == 0 ? 0f : 100f - yesPercent).ToString("0.#") + "%）", card, 21, TextAnchor.MiddleLeft, SecondaryText); SetHeight(stats.rectTransform, 42);
-            BadgeReorderDragHandler drag = card.gameObject.AddComponent<BadgeReorderDragHandler>();
+            Text stats = Label("YES " + Mathf.RoundToInt(badge.yesProbability * 100) + "%  ·  使用 " + total + " 次  ·  YES " + yesCount + "（" + yesPercent.ToString("0.#") + "%）  ·  NO " + noCount + "（" + (total == 0 ? 0f : 100f - yesPercent).ToString("0.#") + "%）", card, 19, TextAnchor.MiddleCenter, SecondaryText); SetHeight(stats.rectTransform, 40); stats.horizontalOverflow = HorizontalWrapMode.Overflow;
+            BadgeReorderDragHandler drag = handle.gameObject.AddComponent<BadgeReorderDragHandler>();
             drag.Bind((RectTransform)card, badgeList, targetIndex => ReorderBadge(badge, targetIndex));
         }
 
@@ -628,7 +637,7 @@ namespace DecisionDisc
         {
             store.MoveBadgeToIndex(badge.id, targetIndex);
             UserActionLog.Add("拖动调整徽章顺序：" + badge.name + " → " + (targetIndex + 1));
-            RefreshBadges();
+            badgeStatus.text = "已将“" + badge.name + "”移动到第 " + (targetIndex + 1) + " 位";
         }
 
         private IEnumerator RefreshBadgeListLayout()
@@ -962,7 +971,7 @@ namespace DecisionDisc
             Image preview = Image(yesFace ? "YesPreview" : "NoPreview", container, Color.white);
             preview.sprite = sprite ?? DefaultFaceSprite(badge, yesFace); preview.preserveAspect = true;
             SetFlexible(preview.rectTransform);
-            Text face = Label((yesFace ? "YES" : "NO") + (sprite == null ? " · 默认" : ""), container, 34, TextAnchor.MiddleCenter, yesFace ? Yes : No); SetHeight(face.rectTransform, 50);
+            Text face = Label(yesFace ? "YES" : "NO", container, 34, TextAnchor.MiddleCenter, yesFace ? Yes : No); SetHeight(face.rectTransform, 44);
             if (clickable)
             {
                 Button button = preview.gameObject.AddComponent<Button>();
@@ -1020,27 +1029,18 @@ namespace DecisionDisc
 
         private Texture2D DefaultFaceTexture(BadgeDefinition badge, bool yesFace)
         {
-            if (badge != null && badge.visualPreset == "sunmoon") return yesFace ? sunYesTexture : moonNoTexture;
             return yesFace ? defaultYesTexture : defaultNoTexture;
         }
 
         private Sprite DefaultFaceSprite(BadgeDefinition badge, bool yesFace)
         {
-            bool sunMoon = badge != null && badge.visualPreset == "sunmoon";
-            Texture2D texture = sunMoon ? (yesFace ? sunYesTexture : moonNoTexture) : (yesFace ? defaultYesTexture : defaultNoTexture);
+            Texture2D texture = yesFace ? defaultYesTexture : defaultNoTexture;
             if (texture == null) return circleSprite;
-            Sprite cached = sunMoon ? (yesFace ? sunYesSprite : moonNoSprite) : (yesFace ? defaultYesSprite : defaultNoSprite);
+            Sprite cached = yesFace ? defaultYesSprite : defaultNoSprite;
             if (cached != null) return cached;
             Sprite created = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(.5f, .5f), 100f);
-            created.name = (sunMoon ? "Sun Moon " : "Star ") + (yesFace ? "YES" : "NO") + " Symbol";
-            if (sunMoon)
-            {
-                if (yesFace) sunYesSprite = created; else moonNoSprite = created;
-            }
-            else
-            {
-                if (yesFace) defaultYesSprite = created; else defaultNoSprite = created;
-            }
+            created.name = "Star " + (yesFace ? "YES" : "NO") + " Symbol";
+            if (yesFace) defaultYesSprite = created; else defaultNoSprite = created;
             return created;
         }
 
