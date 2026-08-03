@@ -36,7 +36,7 @@ namespace DecisionDisc
                 strengthSource = pending.StrengthSource, mode = pending.Mode.ToString(),
                 timestampUtc = pending.TimestampUtc.ToString("o"), note = note ?? string.Empty,
                 badgeId = pending.BadgeId, yesProbabilityUsed = pending.YesProbabilityUsed,
-                seriesLength = pending.SeriesLength, yesWins = pending.YesWins, noWins = pending.NoWins
+                seriesLength = pending.SeriesLength, yesWins = pending.YesWins, noWins = pending.NoWins, roundResults = pending.RoundResults
             };
             History.records.Insert(0, record);
             Write(historyPath, History);
@@ -126,6 +126,16 @@ namespace DecisionDisc
 
         public void SelectBadge(string id) { Badges.selectedBadgeId = id; SaveBadges(); }
 
+        public void MoveBadge(string id, int direction)
+        {
+            int index = Badges.badges.FindIndex(item => item.id == id);
+            if (index < 0) return;
+            int target = Mathf.Clamp(index + direction, 0, Badges.badges.Count - 1);
+            if (target == index) return;
+            BadgeDefinition badge = Badges.badges[index];
+            Badges.badges.RemoveAt(index); Badges.badges.Insert(target, badge); SaveBadges();
+        }
+
         public void CopyBadgeImage(BadgeDefinition badge, bool yesFace, string sourcePath, float zoom = 1f, float offsetX = 0f, float offsetY = 0f)
         {
             if (badge == null || badge.builtIn || !File.Exists(sourcePath)) return;
@@ -136,7 +146,7 @@ namespace DecisionDisc
             if (!source.LoadImage(File.ReadAllBytes(sourcePath))) throw new InvalidDataException("无法读取所选图片。");
             const int outputSize = 512;
             var output = new Texture2D(outputSize, outputSize, TextureFormat.RGBA32, false);
-            float cropSize = Mathf.Min(source.width, source.height) / Mathf.Clamp(zoom, 1f, 3f);
+            float cropSize = Mathf.Min(source.width, source.height) / Mathf.Clamp(zoom, 1f, 4f);
             float availableX = Mathf.Max(0f, source.width - cropSize);
             float availableY = Mathf.Max(0f, source.height - cropSize);
             float startX = availableX * Mathf.Clamp01((offsetX + 1f) * 0.5f);

@@ -21,6 +21,7 @@ namespace DecisionDisc
         public int seriesLength = 1;
         public int yesWins;
         public int noWins;
+        public string roundResults;
     }
 
     [Serializable]
@@ -72,6 +73,7 @@ namespace DecisionDisc
         public int SeriesLength = 1;
         public int YesWins;
         public int NoWins;
+        public string RoundResults;
         public string Note;
         public string SavedRecordId;
     }

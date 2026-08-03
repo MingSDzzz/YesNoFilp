@@ -30,9 +30,10 @@ namespace DecisionDisc
         private AndroidFileBridge files;
         private readonly List<GameObject> pages = new List<GameObject>();
         private InputField questionInput;
-        private Image disc;
-        private Text discText;
         private Transform homeFaces;
+        private Transform throwStage;
+        private readonly List<Image> throwDiscs = new List<Image>();
+        private readonly List<Text> throwDiscLabels = new List<Text>();
         private Text status;
         private Text modeText;
         private Text selectedBadgeText;
@@ -49,22 +50,23 @@ namespace DecisionDisc
         private Text badgeDetailTitle;
         private InputField badgeDetailNameInput;
         private Slider badgeProbabilitySlider;
+        private InputField badgeProbabilityInput;
         private Text badgeProbabilityText;
         private Transform badgeDetailFaces;
         private Button badgeDetailDeleteButton;
         private GameObject savePromptPanel;
         private Text savePromptTitle;
         private InputField savePromptNote;
+        private Transform savePromptFaces;
+        private GameObject seriesPanel;
         private GameObject cropPanel;
         private Image cropPreview;
-        private Slider cropZoom;
-        private Slider cropX;
-        private Slider cropY;
+        private CropGestureHandler cropGesture;
         private string cropSourcePath;
         private Text historyFilterText;
         private string historyFilterBadgeId = string.Empty;
         private GameObject uiRoot;
-        private bool lightTheme = true;
+        private static bool lightTheme = true;
         private int seriesLength = 1;
         private float pendingHoldSeconds;
         private BadgeDefinition detailBadge;
@@ -74,6 +76,7 @@ namespace DecisionDisc
         private PendingDecision pending;
         private DecisionMode mode = DecisionMode.Fair5050;
         private Sprite circleSprite;
+        private readonly Dictionary<string, Sprite> spriteCache = new Dictionary<string, Sprite>();
         private readonly List<PendingDecision> sessionDecisions = new List<PendingDecision>();
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -88,7 +91,7 @@ namespace DecisionDisc
             DontDestroyOnLoad(gameObject);
             Application.logMessageReceived += CaptureUnityError;
             Screen.orientation = ScreenOrientation.Portrait;
-            UnityEngine.Input.multiTouchEnabled = false;
+            UnityEngine.Input.multiTouchEnabled = true;
             font = Font.CreateDynamicFontFromOSFont(new[] { "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Droid Sans Fallback", "Arial Unicode MS" }, 32);
             if (font == null) font = Resources.GetBuiltinResource<Font>("Arial.ttf");
             circleSprite = CreateCircleSprite();
@@ -139,6 +142,7 @@ namespace DecisionDisc
             BuildBadgeCreatePanel(safe);
             BuildBadgeDetailPanel(safe);
             BuildSavePromptPanel(safe);
+            BuildSeriesPanel(safe);
             BuildCropPanel(safe);
         }
 
@@ -149,15 +153,13 @@ namespace DecisionDisc
             SetHeight(title.rectTransform, 90);
             Text sub = Label("问题可留空 · 按住越久飞得越高", page.transform, 28, TextAnchor.MiddleCenter, SecondaryText); SetHeight(sub.rectTransform, 50);
 
-            homeFaces = Horizontal("HomeFaces", page.transform, 230);
+            RectTransform visualStage = Rect("VisualStage", page.transform); SetHeight(visualStage, 410);
+            homeFaces = Rect("HomeFaces", visualStage); Stretch((RectTransform)homeFaces);
+            var homeLayout = homeFaces.gameObject.AddComponent<HorizontalLayoutGroup>(); homeLayout.spacing = 28; homeLayout.padding = new RectOffset(36, 36, 26, 26); homeLayout.childControlHeight = true; homeLayout.childControlWidth = true; homeLayout.childForceExpandWidth = true;
+            throwStage = Rect("ThrowStage", visualStage); Stretch((RectTransform)throwStage);
+            var throwLayout = throwStage.gameObject.AddComponent<HorizontalLayoutGroup>(); throwLayout.spacing = 12; throwLayout.padding = new RectOffset(12, 12, 30, 30); throwLayout.childControlHeight = true; throwLayout.childControlWidth = true; throwLayout.childForceExpandWidth = true;
+            throwStage.gameObject.SetActive(false);
             RefreshHomeFaces();
-
-            var discWrap = Rect("DiscWrap", page.transform); SetHeight(discWrap, 360);
-            disc = Image("Disc", discWrap, Accent); disc.sprite = circleSprite;
-            disc.type = UnityEngine.UI.Image.Type.Simple; disc.preserveAspect = true;
-            disc.rectTransform.anchorMin = disc.rectTransform.anchorMax = new Vector2(.5f, .5f);
-            disc.rectTransform.sizeDelta = new Vector2(330, 330);
-            discText = Label("YES / NO", disc.transform, 92, TextAnchor.MiddleCenter, Color.white); Stretch(discText.rectTransform);
 
             var badgeSwitch = Horizontal("BadgeSwitch", page.transform, 76);
             selectedBadgeText = Label("当前徽章：" + store.SelectedBadge().name, badgeSwitch, 27, TextAnchor.MiddleLeft, PrimaryText);
@@ -166,7 +168,7 @@ namespace DecisionDisc
             questionInput = Input("可选：输入本次要决定的问题", page.transform, 104, false);
             var modeButton = Button("Mode", page.transform, "公平 50 / 50", ToggleMode, Panel, 80);
             modeText = modeButton.GetComponentInChildren<Text>();
-            var seriesButton = Button("Series", page.transform, "1 次决定", ToggleSeries, Panel, 76);
+            var seriesButton = Button("Series", page.transform, "赛制：1 次决定  ›", () => seriesPanel.SetActive(true), Panel, 76);
             seriesText = seriesButton.GetComponentInChildren<Text>();
 
             var chargeObject = new GameObject("Charge", typeof(RectTransform), typeof(Image), typeof(ChargeThrowButton));
@@ -220,7 +222,7 @@ namespace DecisionDisc
             CardText(content, "隐私\n当前问题、未保存结果和操作日志默认只在内存中。只有明确保存或导出才会写入文件。");
             CardText(content, "随机模式\n每个徽章可设置 0%–100% YES 基础概率。公平模式始终为 50/50；力度影响模式会围绕基础概率调整，0% 必定 NO、100% 必定 YES。");
             CardText(content, "本地存储\n历史记录和徽章图片副本保存在 Application.persistentDataPath。");
-            CardText(content, "版本\nYesNoFilp 1.3.0 · 历史 JSON 格式 v1");
+            CardText(content, "版本\nYesNoFilp 1.3.1 · 历史 JSON 格式 v1");
             return page;
         }
 
@@ -267,7 +269,10 @@ namespace DecisionDisc
             badgeDetailFaces = Horizontal("DetailFaces", badgeDetailPanel.transform, 260);
             Text imageHint = Label("点击 YES 或 NO 图片即可上传、替换并裁切", badgeDetailPanel.transform, 23, TextAnchor.MiddleCenter, Hex("98A2B3")); SetHeight(imageHint.rectTransform, 52);
             badgeProbabilityText = Label("YES 基础概率：50%", badgeDetailPanel.transform, 30, TextAnchor.MiddleCenter, Color.white); SetHeight(badgeProbabilityText.rectTransform, 58);
-            badgeProbabilitySlider = SliderControl("BadgeProbability", badgeDetailPanel.transform, 0f, 1f, value => badgeProbabilityText.text = "YES 基础概率：" + Mathf.RoundToInt(value * 100) + "%");
+            badgeProbabilitySlider = SliderControl("BadgeProbability", badgeDetailPanel.transform, 0f, 1f, OnProbabilitySliderChanged);
+            badgeProbabilityInput = Input("手动输入 0–100", badgeDetailPanel.transform, 76, false);
+            badgeProbabilityInput.contentType = InputField.ContentType.IntegerNumber;
+            badgeProbabilityInput.onEndEdit.AddListener(ApplyProbabilityInput);
             Text explanation = Label("可设置 0%–100%。仅在“力度影响概率”模式生效；0% 必定 NO，100% 必定 YES。公平模式始终保持 50/50。", badgeDetailPanel.transform, 24, TextAnchor.MiddleCenter, Hex("98A2B3")); SetHeight(explanation.rectTransform, 100);
             Button("SaveDetail", badgeDetailPanel.transform, "保存徽章设置", SaveBadgeDetail, Accent, 84);
             badgeDetailDeleteButton = Button("DeleteDetail", badgeDetailPanel.transform, "删除此徽章", DeleteDetailBadge, No, 76);
@@ -278,29 +283,48 @@ namespace DecisionDisc
         private void BuildSavePromptPanel(Transform parent)
         {
             savePromptPanel = Image("SavePromptPanel", parent, new Color(.05f, .07f, .12f, .97f)).gameObject;
-            Stretch((RectTransform)savePromptPanel.transform, 90, 430, 90, 430);
+            RectTransform promptRect = (RectTransform)savePromptPanel.transform;
+            promptRect.anchorMin = new Vector2(0, 0); promptRect.anchorMax = new Vector2(1, 0); promptRect.pivot = new Vector2(.5f, 0);
+            promptRect.offsetMin = new Vector2(50, 115); promptRect.offsetMax = new Vector2(-50, 1015);
             var layout = savePromptPanel.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(38, 38, 38, 38); layout.spacing = 24; layout.childForceExpandHeight = false;
             savePromptTitle = Label("是否保存本次结果？", savePromptPanel.transform, 40, TextAnchor.MiddleCenter, Color.white); SetHeight(savePromptTitle.rectTransform, 100);
-            savePromptNote = Input("可选：添加备注", savePromptPanel.transform, 100, false);
+            savePromptFaces = Horizontal("SavePromptFaces", savePromptPanel.transform, 220);
+            Text noteTitle = Label("备注（可选，可在历史记录中继续修改）", savePromptPanel.transform, 25, TextAnchor.MiddleLeft, Color.white); SetHeight(noteTitle.rectTransform, 46);
+            savePromptNote = NoteInput("输入本次备注", savePromptPanel.transform, 110);
             Button("ConfirmSave", savePromptPanel.transform, "保存本次记录", SaveCurrent, Accent, 88);
-            Button("KeepMemoryOnly", savePromptPanel.transform, "暂不保存", () => { savePromptPanel.SetActive(false); pending = null; }, Panel, 82);
+            Button("KeepMemoryOnly", savePromptPanel.transform, "不保存，仅保留到本次关闭应用", () => { savePromptPanel.SetActive(false); pending = null; ResetHomeVisuals(); }, Panel, 82);
             savePromptPanel.SetActive(false);
+        }
+
+        private void BuildSeriesPanel(Transform parent)
+        {
+            seriesPanel = Image("SeriesPanel", parent, new Color(.05f, .07f, .12f, .97f)).gameObject;
+            Stretch((RectTransform)seriesPanel.transform, 110, 520, 110, 520);
+            var layout = seriesPanel.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(40, 40, 40, 40); layout.spacing = 24; layout.childForceExpandHeight = false;
+            Text title = Label("选择投掷赛制", seriesPanel.transform, 42, TextAnchor.MiddleCenter, Color.white); SetHeight(title.rectTransform, 90);
+            Text hint = Label("多局赛制会同时投出对应数量的徽章", seriesPanel.transform, 25, TextAnchor.MiddleCenter, Hex("D0D5DD")); SetHeight(hint.rectTransform, 70);
+            Button("One", seriesPanel.transform, "1 次决定", () => SelectSeries(1), Panel, 88);
+            Button("Three", seriesPanel.transform, "3 局 2 胜", () => SelectSeries(3), Panel, 88);
+            Button("Five", seriesPanel.transform, "5 局 3 胜", () => SelectSeries(5), Panel, 88);
+            Button("Close", seriesPanel.transform, "取消", () => seriesPanel.SetActive(false), No, 78);
+            seriesPanel.SetActive(false);
         }
 
         private void BuildCropPanel(Transform parent)
         {
             cropPanel = Image("CropPanel", parent, new Color(.05f, .07f, .12f, .98f)).gameObject;
             Stretch((RectTransform)cropPanel.transform, 70, 160, 70, 130);
-            var layout = cropPanel.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(34, 34, 30, 30); layout.spacing = 16; layout.childForceExpandHeight = false;
+            var layout = cropPanel.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(34, 34, 30, 30); layout.spacing = 20; layout.childForceExpandHeight = false;
             Text title = Label("裁切圆形徽章", cropPanel.transform, 40, TextAnchor.MiddleCenter, Color.white); SetHeight(title.rectTransform, 66);
-            cropPreview = Image("CropPreview", cropPanel.transform, Color.white); cropPreview.preserveAspect = true; SetHeight(cropPreview.rectTransform, 520);
-            Text hint = Label("调整缩放与位置；YES/NO 均输出为 512×512 圆形 PNG", cropPanel.transform, 23, TextAnchor.MiddleCenter, Hex("D0D5DD")); SetHeight(hint.rectTransform, 60);
-            Text zoomLabel = Label("缩放", cropPanel.transform, 22, TextAnchor.MiddleLeft, Color.white); SetHeight(zoomLabel.rectTransform, 36);
-            cropZoom = SliderControl("CropZoom", cropPanel.transform, 1f, 3f, _ => UpdateCropPreview());
-            Text xLabel = Label("左右位置", cropPanel.transform, 22, TextAnchor.MiddleLeft, Color.white); SetHeight(xLabel.rectTransform, 36);
-            cropX = SliderControl("CropX", cropPanel.transform, -1f, 1f, _ => UpdateCropPreview());
-            Text yLabel = Label("上下位置", cropPanel.transform, 22, TextAnchor.MiddleLeft, Color.white); SetHeight(yLabel.rectTransform, 36);
-            cropY = SliderControl("CropY", cropPanel.transform, -1f, 1f, _ => UpdateCropPreview());
+            RectTransform cropStage = Rect("CropStage", cropPanel.transform); SetHeight(cropStage, 660);
+            Image viewport = Image("CircleViewport", cropStage, Color.white); viewport.sprite = circleSprite; viewport.preserveAspect = true;
+            viewport.rectTransform.anchorMin = viewport.rectTransform.anchorMax = new Vector2(.5f, .5f); viewport.rectTransform.sizeDelta = new Vector2(620, 620);
+            Mask circleMask = viewport.gameObject.AddComponent<Mask>(); circleMask.showMaskGraphic = false;
+            cropPreview = Image("CropPreview", viewport.transform, Color.white); cropPreview.rectTransform.anchorMin = cropPreview.rectTransform.anchorMax = new Vector2(.5f, .5f); cropPreview.rectTransform.pivot = new Vector2(.5f, .5f);
+            cropGesture = viewport.gameObject.AddComponent<CropGestureHandler>(); cropGesture.Target = cropPreview.rectTransform; cropGesture.Viewport = viewport.rectTransform;
+            Image ring = Image("CropRing", cropStage, Color.white); ring.sprite = CreateRingSprite(); ring.preserveAspect = true; ring.raycastTarget = false;
+            ring.rectTransform.anchorMin = ring.rectTransform.anchorMax = new Vector2(.5f, .5f); ring.rectTransform.sizeDelta = new Vector2(632, 632);
+            Text hint = Label("单指拖动图片 · 双指捏合缩放 · 圆圈内为最终徽章", cropPanel.transform, 25, TextAnchor.MiddleCenter, Hex("D0D5DD")); SetHeight(hint.rectTransform, 70);
             Button("ConfirmCrop", cropPanel.transform, "确认裁切并保存", ConfirmCrop, Accent, 84);
             Button("CancelCrop", cropPanel.transform, "取消", () => cropPanel.SetActive(false), Panel, 74);
             cropPanel.SetActive(false);
@@ -311,15 +335,17 @@ namespace DecisionDisc
             string question = questionInput.text.Trim();
             BadgeDefinition selectedBadge = store.SelectedBadge();
             float effectiveProbability = DecisionEngine.EffectiveYesProbability(strength, mode, selectedBadge.yesProbability);
-            int targetWins = seriesLength / 2 + 1;
             int yesWins = 0, noWins = 0;
-            while (yesWins < targetWins && noWins < targetWins)
+            char[] rounds = new char[seriesLength];
+            for (int i = 0; i < seriesLength; i++)
             {
-                if (DecisionEngine.Decide(strength, mode, selectedBadge.yesProbability)) yesWins++; else noWins++;
+                bool roundYes = DecisionEngine.Decide(strength, mode, selectedBadge.yesProbability);
+                rounds[i] = roundYes ? 'Y' : 'N';
+                if (roundYes) yesWins++; else noWins++;
             }
             bool yes = yesWins > noWins;
             pendingHoldSeconds = heldSeconds;
-            pending = new PendingDecision { Question = question, IsYes = yes, Strength = strength, StrengthSource = source, Mode = mode, TimestampUtc = DateTime.UtcNow, BadgeId = selectedBadge.id, YesProbabilityUsed = effectiveProbability, SeriesLength = seriesLength, YesWins = yesWins, NoWins = noWins };
+            pending = new PendingDecision { Question = question, IsYes = yes, Strength = strength, StrengthSource = source, Mode = mode, TimestampUtc = DateTime.UtcNow, BadgeId = selectedBadge.id, YesProbabilityUsed = effectiveProbability, SeriesLength = seriesLength, YesWins = yesWins, NoWins = noWins, RoundResults = new string(rounds) };
             sessionDecisions.Insert(0, pending);
             UserActionLog.Add("开始投掷；问题=" + (string.IsNullOrEmpty(question) ? "（未填写）" : question) + "；赛制=" + SeriesLabel(seriesLength) + "；徽章=" + selectedBadge.name + "；力度=" + Mathf.RoundToInt(strength * 100) + "%");
             StopAllCoroutines(); StartCoroutine(AnimateThrow(pending));
@@ -328,29 +354,39 @@ namespace DecisionDisc
         private IEnumerator AnimateThrow(PendingDecision value)
         {
             float duration = Mathf.Clamp(pendingHoldSeconds, 1f, 5f);
-            Vector2 start = disc.rectTransform.anchoredPosition;
             BadgeDefinition animationBadge = store.Badges.badges.Find(item => item.id == value.BadgeId) ?? store.SelectedBadge();
-            int lastFace = -1;
+            PrepareThrowDiscs(value.SeriesLength, animationBadge);
+            int[] lastFaces = new int[throwDiscs.Count]; for (int i = 0; i < lastFaces.Length; i++) lastFaces[i] = -1;
             for (float t = 0; t < duration; t += Time.unscaledDeltaTime)
             {
                 float p = t / duration;
-                int face = Mathf.FloorToInt(p * (12 + value.Strength * 8)) % 2;
-                if (face != lastFace) { RenderDiscFace(face == 0, animationBadge); lastFace = face; }
                 float holdFactor = Mathf.InverseLerp(0f, 5f, Mathf.Clamp(pendingHoldSeconds, 0f, 5f));
                 float height = Mathf.Sin(p * Mathf.PI) * Mathf.Lerp(220f, 620f, holdFactor);
-                disc.rectTransform.anchoredPosition = start + Vector2.up * height;
-                disc.rectTransform.localEulerAngles = new Vector3(0, p * (720 + 1080 * value.Strength), p * 80);
-                disc.rectTransform.localScale = new Vector3(Mathf.Max(.08f, Mathf.Abs(Mathf.Cos(p * Mathf.PI * (5 + value.Strength * 5)))), 1, 1);
+                for (int i = 0; i < throwDiscs.Count; i++)
+                {
+                    Image item = throwDiscs[i];
+                    float phase = p + i * .07f;
+                    bool faceYes = Mathf.FloorToInt(phase * (12 + value.Strength * 8)) % 2 == 0;
+                    int faceIndex = faceYes ? 1 : 0;
+                    if (lastFaces[i] != faceIndex) { RenderDiscFace(item, throwDiscLabels[i], faceYes, animationBadge); lastFaces[i] = faceIndex; }
+                    item.rectTransform.anchoredPosition = Vector2.up * (height * Mathf.Lerp(.88f, 1f, (i % 3) / 2f));
+                    item.rectTransform.localEulerAngles = new Vector3(0, phase * (720 + 1080 * value.Strength), p * (i % 2 == 0 ? 70 : -70));
+                    item.rectTransform.localScale = new Vector3(Mathf.Max(.08f, Mathf.Abs(Mathf.Cos(phase * Mathf.PI * (5 + value.Strength * 5)))), 1, 1);
+                }
                 yield return null;
             }
-            disc.rectTransform.anchoredPosition = start;
-            disc.rectTransform.localEulerAngles = Vector3.zero; disc.rectTransform.localScale = Vector3.one;
-            RenderDiscFace(value.IsYes, animationBadge);
+            for (int i = 0; i < throwDiscs.Count; i++)
+            {
+                Image item = throwDiscs[i]; item.rectTransform.anchoredPosition = Vector2.zero; item.rectTransform.localEulerAngles = Vector3.zero; item.rectTransform.localScale = Vector3.one;
+                bool roundYes = i < value.RoundResults.Length && value.RoundResults[i] == 'Y';
+                RenderDiscFace(item, throwDiscLabels[i], roundYes, animationBadge);
+            }
             status.text = (value.IsYes ? "YES" : "NO") + "  ·  " + SeriesScore(value) + "  ·  力度 " + Mathf.RoundToInt(value.Strength * 100) + "%\n尚未保存";
             UserActionLog.Add("投掷完成；结果=" + (value.IsYes ? "YES" : "NO"));
             RefreshHistory();
             savePromptNote.text = string.Empty;
             savePromptTitle.text = (value.IsYes ? "YES" : "NO") + " · " + SeriesScore(value) + "\n是否保存本次结果？";
+            PopulateResultFaces(savePromptFaces, value, animationBadge);
             savePromptPanel.SetActive(true);
         }
 
@@ -361,7 +397,7 @@ namespace DecisionDisc
             pending.Note = record.note;
             pending.SavedRecordId = record.id;
             UserActionLog.Add("明确保存本次记录；结果=" + (pending.IsYes ? "YES" : "NO"));
-            pending = null; savePromptPanel.SetActive(false);
+            pending = null; savePromptPanel.SetActive(false); ResetHomeVisuals();
             status.text = "本次记录已永久保存。"; RefreshHistory();
         }
 
@@ -372,10 +408,11 @@ namespace DecisionDisc
             UserActionLog.Add("切换随机模式：" + ModeLabel(mode));
         }
 
-        private void ToggleSeries()
+        private void SelectSeries(int value)
         {
-            seriesLength = seriesLength == 1 ? 3 : (seriesLength == 3 ? 5 : 1);
-            seriesText.text = SeriesLabel(seriesLength);
+            seriesLength = value;
+            seriesText.text = "赛制：" + SeriesLabel(seriesLength) + "  ›";
+            seriesPanel.SetActive(false);
             UserActionLog.Add("切换赛制：" + SeriesLabel(seriesLength));
         }
 
@@ -407,29 +444,48 @@ namespace DecisionDisc
         {
             if (badgeList == null) return; Clear(badgeList);
             UpdateSelectedBadgeText();
-            var ordered = new List<BadgeDefinition>();
-            if (imageTarget != null && store.Badges.badges.Contains(imageTarget)) ordered.Add(imageTarget);
-            foreach (BadgeDefinition item in store.Badges.badges) if (!ordered.Contains(item)) ordered.Add(item);
-            foreach (BadgeDefinition badgeItem in ordered)
+            BadgeDefinition selected = store.SelectedBadge();
+            Text currentTitle = Label("当前使用徽章", badgeList, 30, TextAnchor.MiddleLeft, Accent); SetHeight(currentTitle.rectTransform, 56);
+            AddBadgeCard(selected, true);
+            Text waitingTitle = Label("待使用徽章 · 可调整顺序", badgeList, 30, TextAnchor.MiddleLeft, Accent); SetHeight(waitingTitle.rectTransform, 56);
+            foreach (BadgeDefinition badge in store.Badges.badges)
             {
-                BadgeDefinition badge = badgeItem;
-                bool complete = DecisionStore.IsBadgeComplete(badge);
-                var card = VerticalCard("Badge", badgeList, 400);
-                Text name = Label((badge.id == store.Badges.selectedBadgeId ? "●  当前使用：" : "○  ") + badge.name, card, 32, TextAnchor.MiddleLeft, PrimaryText); SetHeight(name.rectTransform, 54);
-                var previews = Horizontal("FacePreviews", card, 150);
-                AddFacePreview(previews, badge, true, !badge.builtIn);
-                AddFacePreview(previews, badge, false, !badge.builtIn);
-                var actions = Horizontal("BadgeActions", card, 68);
-                Button use = Button("Use", actions, complete ? "使用此徽章" : "两面未补齐", () => SelectBadgeForUse(badge), Accent, 66);
-                use.interactable = complete;
-                Button("OpenDetail", actions, "进入设置  ›", () => OpenBadgeDetail(badge), Panel, 66);
-                Text probability = Label("YES 基础概率：" + Mathf.RoundToInt(badge.yesProbability * 100) + "%  ·  " + (badge.builtIn ? "默认徽章" : "点击图片可替换"), card, 21, TextAnchor.MiddleLeft, Accent); SetHeight(probability.rectTransform, 42);
-                GetBadgeStats(badge.id, out int total, out int yesCount, out int noCount);
-                float yesPercent = total == 0 ? 0f : yesCount * 100f / total;
-                Text stats = Label("使用 " + total + " 次  ·  YES " + yesCount + "（" + yesPercent.ToString("0.#") + "%）  ·  NO " + noCount + "（" + (total == 0 ? 0f : 100f - yesPercent).ToString("0.#") + "%）", card, 21, TextAnchor.MiddleLeft, SecondaryText); SetHeight(stats.rectTransform, 42);
+                if (badge.id != selected.id) AddBadgeCard(badge, false);
             }
             badgeStatus.text = "当前共有 " + store.Badges.badges.Count + " 个徽章。新创建的徽章会显示在列表顶部。";
             StartCoroutine(RefreshBadgeListLayout());
+        }
+
+        private void AddBadgeCard(BadgeDefinition badge, bool current)
+        {
+            var card = VerticalCard(current ? "CurrentBadge" : "CandidateBadge", badgeList, current ? 450 : 520);
+            Text name = Label((current ? "●  使用中  " : "○  待使用  ") + badge.name, card, 32, TextAnchor.MiddleLeft, current ? Accent : PrimaryText); SetHeight(name.rectTransform, 54);
+            var previews = Horizontal("FacePreviews", card, 160);
+            AddFacePreview(previews, badge, true, !badge.builtIn);
+            AddFacePreview(previews, badge, false, !badge.builtIn);
+            var actions = Horizontal("BadgeActions", card, 68);
+            Button use = Button("Use", actions, current ? "当前使用中" : "设为当前徽章", () => SelectBadgeForUse(badge), current ? Panel : Accent, 66); use.interactable = !current;
+            Button("OpenDetail", actions, "徽章设置  ›", () => OpenBadgeDetail(badge), Panel, 66);
+            if (!current)
+            {
+                var orderActions = Horizontal("OrderActions", card, 58);
+                Button("MoveUp", orderActions, "↑ 上移", () => MoveVisibleBadge(badge, -1), Panel, 56);
+                Button("MoveDown", orderActions, "↓ 下移", () => MoveVisibleBadge(badge, 1), Panel, 56);
+            }
+            Text probability = Label("YES 基础概率：" + Mathf.RoundToInt(badge.yesProbability * 100) + "%  ·  " + (badge.builtIn ? "默认徽章" : "点击图片可替换"), card, 21, TextAnchor.MiddleLeft, Accent); SetHeight(probability.rectTransform, 42);
+            GetBadgeStats(badge.id, out int total, out int yesCount, out int noCount);
+            float yesPercent = total == 0 ? 0f : yesCount * 100f / total;
+            Text stats = Label("使用 " + total + " 次  ·  YES " + yesCount + "（" + yesPercent.ToString("0.#") + "%）  ·  NO " + noCount + "（" + (total == 0 ? 0f : 100f - yesPercent).ToString("0.#") + "%）", card, 21, TextAnchor.MiddleLeft, SecondaryText); SetHeight(stats.rectTransform, 42);
+        }
+
+        private void MoveVisibleBadge(BadgeDefinition badge, int direction)
+        {
+            List<BadgeDefinition> candidates = store.Badges.badges.FindAll(item => item.id != store.Badges.selectedBadgeId);
+            int visibleIndex = candidates.IndexOf(badge), targetVisible = visibleIndex + direction;
+            if (visibleIndex < 0 || targetVisible < 0 || targetVisible >= candidates.Count) return;
+            BadgeDefinition target = candidates[targetVisible];
+            int from = store.Badges.badges.IndexOf(badge), to = store.Badges.badges.IndexOf(target);
+            store.MoveBadge(badge.id, to - from); UserActionLog.Add("调整徽章顺序：" + badge.name); RefreshBadges();
         }
 
         private IEnumerator RefreshBadgeListLayout()
@@ -446,7 +502,6 @@ namespace DecisionDisc
         {
             if (!DecisionStore.IsBadgeComplete(badge)) return;
             store.SelectBadge(badge.id);
-            RenderDiscFace(true, badge);
             RefreshHomeFaces();
             UpdateSelectedBadgeText();
             badgeStatus.text = "已切换到“" + badge.name + "”。";
@@ -470,6 +525,7 @@ namespace DecisionDisc
             badgeDetailNameInput.interactable = !badge.builtIn;
             badgeProbabilitySlider.value = badge.yesProbability;
             badgeProbabilityText.text = "YES 基础概率：" + Mathf.RoundToInt(badge.yesProbability * 100) + "%";
+            badgeProbabilityInput.text = Mathf.RoundToInt(badge.yesProbability * 100).ToString();
             badgeDetailDeleteButton.interactable = !badge.builtIn;
             RefreshBadgeDetailFaces();
             badgeDetailPanel.SetActive(true);
@@ -487,6 +543,7 @@ namespace DecisionDisc
         private void SaveBadgeDetail()
         {
             if (detailBadge == null) return;
+            ApplyProbabilityInput(badgeProbabilityInput.text);
             if (!detailBadge.builtIn)
             {
                 string name = badgeDetailNameInput.text.Trim();
@@ -499,6 +556,19 @@ namespace DecisionDisc
             badgeDetailTitle.text = "徽章设置 · " + detailBadge.name;
             UpdateSelectedBadgeText();
             RefreshBadges();
+        }
+
+        private void OnProbabilitySliderChanged(float value)
+        {
+            int percent = Mathf.RoundToInt(value * 100f);
+            if (badgeProbabilityText != null) badgeProbabilityText.text = "YES 基础概率：" + percent + "%";
+            if (badgeProbabilityInput != null && !badgeProbabilityInput.isFocused) badgeProbabilityInput.text = percent.ToString();
+        }
+
+        private void ApplyProbabilityInput(string value)
+        {
+            if (!int.TryParse(value, out int percent)) percent = Mathf.RoundToInt(badgeProbabilitySlider.value * 100f);
+            percent = Mathf.Clamp(percent, 0, 100); badgeProbabilityInput.text = percent.ToString(); badgeProbabilitySlider.value = percent / 100f;
         }
 
         private void DeleteDetailBadge()
@@ -518,9 +588,12 @@ namespace DecisionDisc
             {
                 if (imageTarget == null) throw new InvalidOperationException("没有正在编辑的徽章。");
                 cropSourcePath = path;
-                cropZoom.value = 1f; cropX.value = 0f; cropY.value = 0f;
-                UpdateCropPreview();
+                Sprite sprite = LoadSprite(path);
+                if (sprite == null) throw new InvalidDataException("无法读取所选图片。");
+                cropPreview.sprite = sprite;
                 cropPanel.SetActive(true);
+                Canvas.ForceUpdateCanvases();
+                cropGesture.Configure(cropPreview.rectTransform, cropGesture.Viewport, sprite.texture.width, sprite.texture.height);
             }
             catch (Exception exception) { badgeStatus.text = "图片保存失败：" + exception.Message; UserActionLog.Add("徽章图片保存失败：" + exception.Message); Debug.LogWarning(exception); }
         }
@@ -582,7 +655,7 @@ namespace DecisionDisc
             }
             else
             {
-                InputField note = Input("备注", details, 64, false); note.text = record.note ?? string.Empty;
+                InputField note = NoteInput("输入或修改备注", details, 72); note.text = record.note ?? string.Empty;
                 Button("SaveNote", actions, "保存备注", () => { store.UpdateRecordNote(record.id, note.text.Trim()); UserActionLog.Add("修改历史备注：" + record.id); RefreshHistory(); }, Accent, 70);
                 Button("DeleteOne", actions, "删除", () =>
                 {
@@ -599,6 +672,8 @@ namespace DecisionDisc
             pending = decision;
             savePromptNote.text = decision.Note ?? string.Empty;
             savePromptTitle.text = (decision.IsYes ? "YES" : "NO") + " · " + SeriesScore(decision) + "\n是否保存这条记录？";
+            BadgeDefinition badge = store.Badges.badges.Find(item => item.id == decision.BadgeId) ?? store.SelectedBadge();
+            PopulateResultFaces(savePromptFaces, decision, badge);
             savePromptPanel.SetActive(true);
         }
 
@@ -628,49 +703,20 @@ namespace DecisionDisc
             }
         }
 
-        private void UpdateCropPreview()
-        {
-            if (cropPreview == null || string.IsNullOrEmpty(cropSourcePath) || !File.Exists(cropSourcePath)) return;
-            if (cropPreview.sprite != null)
-            {
-                Texture2D oldTexture = cropPreview.sprite.texture;
-                Destroy(cropPreview.sprite); Destroy(oldTexture);
-            }
-            cropPreview.sprite = CreateCroppedSprite(cropSourcePath, cropZoom.value, cropX.value, cropY.value, 256);
-        }
-
         private void ConfirmCrop()
         {
             try
             {
-                store.CopyBadgeImage(imageTarget, imageTargetIsYes, cropSourcePath, cropZoom.value, cropX.value, cropY.value);
+                Vector2 offset = cropGesture.NormalizedOffset;
+                store.CopyBadgeImage(imageTarget, imageTargetIsYes, cropSourcePath, cropGesture.Zoom, -offset.x, -offset.y);
+                InvalidateSprite(imageTargetIsYes ? imageTarget.yesImagePath : imageTarget.noImagePath);
                 cropPanel.SetActive(false);
                 badgeStatus.text = "已将“" + imageTarget.name + "”的 " + (imageTargetIsYes ? "YES" : "NO") + " 面裁切为 512×512 圆形图片。";
                 UserActionLog.Add("裁切并保存徽章图片：" + imageTarget.name + " / " + (imageTargetIsYes ? "YES" : "NO"));
                 RefreshBadges(); RefreshHomeFaces();
                 if (detailBadge == imageTarget) RefreshBadgeDetailFaces();
-                if (store.Badges.selectedBadgeId == imageTarget.id) RenderDiscFace(imageTargetIsYes, imageTarget);
             }
             catch (Exception exception) { badgeStatus.text = "图片裁切失败：" + exception.Message; UserActionLog.Add("图片裁切失败：" + exception.Message); }
-        }
-
-        private static Sprite CreateCroppedSprite(string path, float zoom, float offsetX, float offsetY, int size)
-        {
-            var source = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            if (!source.LoadImage(File.ReadAllBytes(path))) return null;
-            var output = new Texture2D(size, size, TextureFormat.RGBA32, false);
-            float cropSize = Mathf.Min(source.width, source.height) / Mathf.Clamp(zoom, 1f, 3f);
-            float startX = Mathf.Max(0f, source.width - cropSize) * Mathf.Clamp01((offsetX + 1f) * .5f);
-            float startY = Mathf.Max(0f, source.height - cropSize) * Mathf.Clamp01((offsetY + 1f) * .5f);
-            for (int y = 0; y < size; y++) for (int x = 0; x < size; x++)
-            {
-                float nx = (x + .5f) / size, ny = (y + .5f) / size;
-                Color pixel = source.GetPixelBilinear((startX + nx * cropSize) / source.width, (startY + ny * cropSize) / source.height);
-                float dx = nx - .5f, dy = ny - .5f; if (dx * dx + dy * dy > .25f) pixel.a = 0f;
-                output.SetPixel(x, y, pixel);
-            }
-            output.Apply(); Destroy(source);
-            return Sprite.Create(output, new Rect(0, 0, size, size), new Vector2(.5f, .5f), 100);
         }
 
         private void RefreshHomeFaces()
@@ -680,6 +726,45 @@ namespace DecisionDisc
             BadgeDefinition badge = store.SelectedBadge();
             AddFacePreview(homeFaces, badge, true, false);
             AddFacePreview(homeFaces, badge, false, false);
+        }
+
+        private void ResetHomeVisuals()
+        {
+            if (throwStage != null) throwStage.gameObject.SetActive(false);
+            if (homeFaces != null) homeFaces.gameObject.SetActive(true);
+            RefreshHomeFaces();
+        }
+
+        private void PrepareThrowDiscs(int count, BadgeDefinition badge)
+        {
+            Clear(throwStage); throwDiscs.Clear(); throwDiscLabels.Clear();
+            homeFaces.gameObject.SetActive(false); throwStage.gameObject.SetActive(true);
+            float imageSize = count == 1 ? 330f : count == 3 ? 250f : 165f;
+            for (int i = 0; i < count; i++)
+            {
+                Transform cell = VerticalContainer("ThrowCell", throwStage, true);
+                cell.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+                Image image = Image("ThrowDisc", cell, Yes); image.sprite = circleSprite; image.preserveAspect = true; SetHeight(image.rectTransform, imageSize);
+                Text label = Label("YES", cell, count == 5 ? 28 : 38, TextAnchor.MiddleCenter, Yes); SetHeight(label.rectTransform, 50);
+                throwDiscs.Add(image); throwDiscLabels.Add(label);
+                RenderDiscFace(image, label, true, badge);
+            }
+        }
+
+        private void PopulateResultFaces(Transform parent, PendingDecision decision, BadgeDefinition badge)
+        {
+            if (parent == null) return; Clear(parent);
+            string results = string.IsNullOrEmpty(decision.RoundResults) ? (decision.IsYes ? "Y" : "N") : decision.RoundResults;
+            for (int i = 0; i < results.Length; i++) AddResultFace(parent, badge, results[i] == 'Y');
+        }
+
+        private void AddResultFace(Transform parent, BadgeDefinition badge, bool yesFace)
+        {
+            Transform container = VerticalContainer("ResultFace", parent, true);
+            string path = yesFace ? badge.yesImagePath : badge.noImagePath;
+            Sprite loaded = LoadSprite(path);
+            Image image = Image("ResultImage", container, loaded == null ? (yesFace ? Yes : No) : Color.white); image.sprite = loaded ?? circleSprite; image.preserveAspect = true; SetFlexible(image.rectTransform);
+            Text label = Label(yesFace ? "YES" : "NO", container, 30, TextAnchor.MiddleCenter, yesFace ? Yes : No); SetHeight(label.rectTransform, 46);
         }
 
         private void ToggleTheme()
@@ -723,10 +808,11 @@ namespace DecisionDisc
         {
             string path = yesFace ? badge.yesImagePath : badge.noImagePath;
             Sprite sprite = LoadSprite(path);
-            Image preview = Image(yesFace ? "YesPreview" : "NoPreview", parent, sprite == null ? (yesFace ? Yes : No) : Color.white);
+            Transform container = VerticalContainer(yesFace ? "YesFace" : "NoFace", parent, true);
+            Image preview = Image(yesFace ? "YesPreview" : "NoPreview", container, sprite == null ? (yesFace ? Yes : No) : Color.white);
             preview.sprite = sprite ?? circleSprite; preview.preserveAspect = true;
-            Text face = Label(sprite == null ? (yesFace ? "YES\n默认面" : "NO\n默认面") : (yesFace ? "YES" : "NO"), preview.transform, 40, TextAnchor.MiddleCenter, sprite == null ? Color.white : new Color(1, 1, 1, .85f)); Stretch(face.rectTransform);
-            face.raycastTarget = false;
+            SetFlexible(preview.rectTransform);
+            Text face = Label((yesFace ? "YES" : "NO") + (sprite == null ? " · 默认" : ""), container, 34, TextAnchor.MiddleCenter, yesFace ? Yes : No); SetHeight(face.rectTransform, 50);
             if (clickable)
             {
                 Button button = preview.gameObject.AddComponent<Button>();
@@ -770,13 +856,13 @@ namespace DecisionDisc
             return DateTime.TryParse(utc, out DateTime value) ? value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") : utc;
         }
 
-        private void RenderDiscFace(bool yesFace, BadgeDefinition badge)
+        private void RenderDiscFace(Image image, Text label, bool yesFace, BadgeDefinition badge)
         {
             string path = yesFace ? badge.yesImagePath : badge.noImagePath;
             Sprite loaded = LoadSprite(path);
-            disc.sprite = loaded ?? circleSprite;
-            disc.color = loaded == null ? (yesFace ? Yes : No) : Color.white;
-            discText.text = loaded == null ? (yesFace ? "YES" : "NO") : string.Empty;
+            image.sprite = loaded ?? circleSprite;
+            image.color = loaded == null ? (yesFace ? Yes : No) : Color.white;
+            label.text = yesFace ? "YES" : "NO"; label.color = yesFace ? Yes : No;
         }
 
         private void ShowPage(int index)
@@ -838,6 +924,14 @@ namespace DecisionDisc
             field.textComponent = value; field.placeholder = hint; field.targetGraphic = root; return field;
         }
 
+        private static InputField NoteInput(string placeholder, Transform parent, float height)
+        {
+            InputField field = Input(placeholder, parent, height, false);
+            Image background = field.GetComponent<Image>(); background.color = lightTheme ? Hex("EEF6FF") : Hex("26364A");
+            Outline outline = field.gameObject.AddComponent<Outline>(); outline.effectColor = Accent; outline.effectDistance = new Vector2(2, -2);
+            return field;
+        }
+
         private static Button Button(string name, Transform parent, string value, UnityEngine.Events.UnityAction action, Color color, float height)
         {
             var image = Image(name, parent, color); SetHeight(image.rectTransform, height);
@@ -847,10 +941,14 @@ namespace DecisionDisc
 
         private Slider SliderControl(string name, Transform parent, float min, float max, UnityEngine.Events.UnityAction<float> changed)
         {
-            Image root = Image(name, parent, Panel); SetHeight(root.rectTransform, 76);
-            Image fill = Image("Fill", root.transform, Accent);
-            fill.rectTransform.anchorMin = new Vector2(0, .28f); fill.rectTransform.anchorMax = new Vector2(1, .72f); fill.rectTransform.offsetMin = new Vector2(24, 0); fill.rectTransform.offsetMax = new Vector2(-24, 0);
-            Image handle = Image("Handle", root.transform, Color.white); handle.sprite = circleSprite; handle.preserveAspect = true; handle.rectTransform.sizeDelta = new Vector2(58, 58);
+            Image root = Image(name, parent, lightTheme ? Hex("EEF2F6") : Hex("243244")); SetHeight(root.rectTransform, 84);
+            RectTransform track = Rect("Track", root.transform); track.anchorMin = new Vector2(.08f, .5f); track.anchorMax = new Vector2(.92f, .5f); track.sizeDelta = new Vector2(0, 16);
+            Image trackImage = track.gameObject.AddComponent<Image>(); trackImage.color = lightTheme ? Hex("CAD5E2") : Hex("475467");
+            RectTransform fillArea = Rect("FillArea", root.transform); fillArea.anchorMin = new Vector2(.08f, .5f); fillArea.anchorMax = new Vector2(.92f, .5f); fillArea.sizeDelta = new Vector2(0, 16);
+            Image fill = Image("Fill", fillArea, Accent); Stretch(fill.rectTransform);
+            RectTransform handleArea = Rect("HandleArea", root.transform); handleArea.anchorMin = new Vector2(.08f, 0); handleArea.anchorMax = new Vector2(.92f, 1); handleArea.offsetMin = Vector2.zero; handleArea.offsetMax = Vector2.zero;
+            Image handle = Image("Handle", handleArea, Color.white); handle.sprite = circleSprite; handle.preserveAspect = true; handle.rectTransform.sizeDelta = new Vector2(52, 52);
+            Outline outline = handle.gameObject.AddComponent<Outline>(); outline.effectColor = Accent; outline.effectDistance = new Vector2(3, -3);
             var slider = root.gameObject.AddComponent<Slider>(); slider.minValue = min; slider.maxValue = max; slider.fillRect = fill.rectTransform; slider.handleRect = handle.rectTransform; slider.targetGraphic = handle; slider.direction = Slider.Direction.LeftToRight;
             slider.onValueChanged.AddListener(changed); return slider;
         }
@@ -903,17 +1001,43 @@ namespace DecisionDisc
         private static Color Hex(string hex) { ColorUtility.TryParseHtmlString("#" + hex, out Color result); return result; }
         private static bool Approximately(Color a, Color b) { return Mathf.Abs(a.r - b.r) < .001f && Mathf.Abs(a.g - b.g) < .001f && Mathf.Abs(a.b - b.b) < .001f && Mathf.Abs(a.a - b.a) < .001f; }
 
-        private static Sprite LoadSprite(string path)
+        private Sprite LoadSprite(string path)
         {
             if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
-            try { var texture = new Texture2D(2, 2); return texture.LoadImage(File.ReadAllBytes(path)) ? Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(.5f, .5f), 100) : null; }
+            if (spriteCache.TryGetValue(path, out Sprite cached) && cached != null) return cached;
+            try
+            {
+                var texture = new Texture2D(2, 2);
+                if (!texture.LoadImage(File.ReadAllBytes(path))) { Destroy(texture); return null; }
+                Sprite loaded = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(.5f, .5f), 100);
+                spriteCache[path] = loaded; return loaded;
+            }
             catch { return null; }
+        }
+
+        private void InvalidateSprite(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !spriteCache.TryGetValue(path, out Sprite sprite)) return;
+            spriteCache.Remove(path); if (sprite != null) { Destroy(sprite.texture); Destroy(sprite); }
         }
 
         private static Sprite CreateCircleSprite()
         {
             const int size = 256; var texture = new Texture2D(size, size, TextureFormat.RGBA32, false); Color[] pixels = new Color[size * size]; Vector2 center = Vector2.one * (size - 1) * .5f; float radius = size * .49f;
             for (int y = 0; y < size; y++) for (int x = 0; x < size; x++) { float distance = Vector2.Distance(new Vector2(x, y), center); float alpha = Mathf.Clamp01(radius - distance); pixels[y * size + x] = new Color(1, 1, 1, alpha); }
+            texture.SetPixels(pixels); texture.Apply(); return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(.5f, .5f), 100);
+        }
+
+        private static Sprite CreateRingSprite()
+        {
+            const int size = 256; var texture = new Texture2D(size, size, TextureFormat.RGBA32, false); Color[] pixels = new Color[size * size];
+            Vector2 center = Vector2.one * (size - 1) * .5f; float outer = size * .49f, inner = size * .465f;
+            for (int y = 0; y < size; y++) for (int x = 0; x < size; x++)
+            {
+                float distance = Vector2.Distance(new Vector2(x, y), center);
+                float alpha = Mathf.Clamp01(Mathf.Min(outer - distance, distance - inner));
+                pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
+            }
             texture.SetPixels(pixels); texture.Apply(); return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(.5f, .5f), 100);
         }
     }
