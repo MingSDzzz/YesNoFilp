@@ -1,106 +1,55 @@
 # YES / NO 决策徽章（YesNoFilp）
 
-一个使用 Unity `2022.3.62f2c1` 从零制作、隐私优先的 Android 个人决策应用。
+一个隐私优先的 Android YES/NO 决策应用。输入一个问题，按住蓄力并松开，即可投掷双面徽章获得结果。
 
-当前 Android 版本：`1.3.8`（`versionCode 14`）。
+当前版本：`1.3.8`（`versionCode 14`）
+
+[下载最新 APK](https://github.com/MingSDzzz/YesNoFilp/releases/download/v1.3.8/YesNoFilp-v1.3.8.apk) · [查看版本说明](https://github.com/MingSDzzz/YesNoFilp/releases/tag/v1.3.8)
+
+## 使用演示
+
+<p align="center">
+  <a href="https://github.com/MingSDzzz/YesNoFilp/releases/download/v1.3.8/YesNoFilp-v1.3.8-usage-guide.mp4">
+    <img src="Assets/Resources/Theme/app-launcher-icon.png" width="160" alt="点击观看使用演示">
+  </a>
+</p>
+
+点击上方图标观看 [34 秒中文操作演示](https://github.com/MingSDzzz/YesNoFilp/releases/download/v1.3.8/YesNoFilp-v1.3.8-usage-guide.mp4)。GitHub 不会在仓库首页自动播放 Release 视频，因此这里提供醒目的观看入口。
 
 ## 主要功能
 
-- 四个 Android 竖屏页面：投掷、徽章管理、历史记录和设置。
-- 问题可以填写也可以留空；按住按钮蓄力，松开后投掷带有 YES/NO 两面的动态圆盘。
-- Android 设备支持触摸压力时读取真实 `pressure`；不支持时使用按住时间、触摸面积和松开速度模拟力度。
-- 每个徽章可以独立设置 0%–100% 的 YES 基础概率，默认 50%；蓄力会在基础概率上调整，但 0% 始终必定 NO，100% 始终必定 YES。
-- 蓄力 3 秒达到 100%，继续按住不会继续增加力度，松手时才会投掷；投掷与结果确认期间不能重复蓄力。
-- 支持在赛制弹窗中选择 1 次决定、3 局 2 胜和 5 局 3 胜；多局赛制会同时投出对应数量的徽章并逐枚展示结果。
-- 首页闲置时只显示当前徽章的 YES、NO 两面；投掷阶段和结算弹窗内外显示本次结果徽章。
-- 创建徽章时先输入名称，默认立即拥有星光符号风格的 YES/NO 两面和 50% 概率，可直接使用。
-- 点击徽章图片即可选择新图片，在固定圆形裁切框中单指拖动、双指捏合缩放；确认后两面统一保存为 512×512 圆形 PNG。
-- 默认徽章会在圆面中央显示 YES/NO，所有徽章同时在图片下方显示对应标签；用户图片本身不会被额外文字遮挡。
-- 徽章支持改名、预览、切换、拖动排序、修改概率和删除；只有卡片左上角的 `☰` 可触发排序，拖动时卡片保持在列表宽度内并实时显示插入位置。卡片在一行内显示基础概率、总使用次数及 YES/NO 次数和百分比。
-- 蓄力投掷按钮使用独立的透明星光投掷图标。
-- Android 桌面启动图标使用青蓝 / 珊瑚双色星光圆盘，并由构建脚本强制写入 Player Settings。
-- 概率控件包含完整轨道、圆形滑块和 0–100 数字输入框。
-- 投掷使用混合物理：重力抛物线与 Rigidbody/PhysX 角速度负责飞行质感，落地阶段再柔和校正到概率已决定的 YES/NO 面。
-- 日用主题采用原创二次元科幻视觉底图、半透明圆角卡片和图标化导航，素材不复制任何游戏角色、Logo 或界面。
-- 投掷结果只在保存提示弹窗中临时存在；选择“不保存”后立即删除，不进入历史记录。
-- 投掷完成后由弹窗询问是否保存，不在首页常驻显示保存按钮。
-- 历史页只显示明确保存的记录，按时间排序并支持按徽章筛选。
-- 永久记录可修改备注或删除，备注输入框使用独立底色与边框。
-- 已保存记录包含问题、YES/NO、力度、实际 YES 概率、力度来源、模式、时间、可选备注和徽章信息。
-- 历史 JSON 的导入与导出入口已移至设置页；导入支持预览、合并或替换。
-- 设置页支持预览和导出用户操作日志。日志默认只在内存中，只有用户点击导出时才写入文件。
-- 默认使用日间浅色主题，并可在设置页切换夜间深色主题。
-- 圆盘飞行高度和旋转速度随按压时间增加，完整动画限制为 1.2–3 秒。
-- Unity `2022.3` Personal 许可证强制显示 Unity 启动画面，无法通过首场景绕过；项目将其配置为静态、最低允许遮罩强度并匹配应用日间背景色。
-- 如果未来允许升级引擎，Unity 6（`6000.0` 及以后）Personal 已支持关闭启动画面；应通过独立迁移分支验证，不直接破坏当前固定的 `2022.3.62f2c1` 构建链。
-- UI 适配 Android 竖屏、安全区域和刘海屏。
+- 问题可以填写或留空；按住蓄力，松开后投掷带有 YES/NO 两面的动态徽章。
+- 蓄力 3 秒达到满力，继续按住不会自动投掷；投掷结束前不能重复操作。
+- 支持真实触摸压力；设备不支持时，使用按住时间、触摸面积和松开动作计算力度。
+- 内置可直接使用的默认徽章；支持创建多个自定义徽章并上传、裁切 YES 和 NO 两面图片。
+- 支持修改徽章名称、拖动排序、切换当前徽章，以及查看使用次数和结果比例。
+- 每个徽章可设置 0%–100% 的 YES 基础概率，默认 50%；0% 必定 NO，100% 必定 YES。
+- 支持单次决定、3 局 2 胜和 5 局 3 胜，多局模式会同时展示多枚徽章。
+- 投掷结束后选择是否保存；历史记录支持备注、筛选和单独删除。
+- 已保存记录支持带版本号的 JSON 导入与导出，导入前可预览并选择合并或替换。
+- 提供日间与夜间主题，适配 Android 竖屏、刘海屏和安全区域。
+
+## 基本使用
+
+1. 在“投掷”页选择徽章，可按需输入问题。
+2. 按住投掷按钮蓄力，松开后等待徽章落地。
+3. 在结果弹窗中填写可选备注，并选择保存或不保存。
+4. 在“徽章”页创建、编辑、切换或排序徽章。
+5. 在“记录”页查看历史，在“设置”页导入、导出数据或操作日志。
 
 ## 隐私与本地数据
 
-运行数据保存在 `Application.persistentDataPath` 下：
+- 当前问题、未保存结果和操作日志默认只存在于内存中。
+- 只有用户明确保存的结果才会进入历史记录。
+- 历史和徽章图片副本保存在 `Application.persistentDataPath`。
+- 上传的徽章图片会复制到应用目录，删除手机中的原始图片不会影响已创建徽章。
+- 应用不会申请与核心功能无关的 Android 权限。
 
-- `history-v1.json`：只有用户明确点击“保存本次记录”后才写入的历史记录。
-- `badges-v1.json`：徽章名称、选中状态和概率等元数据。
-- `Badges/<badge-id>/yes.png`：裁切后的 YES 面应用内部副本。
-- `Badges/<badge-id>/no.png`：裁切后的 NO 面应用内部副本。
+## 开发与构建
 
-用户选择徽章图片后，应用会把图片复制到自己的持久化目录。因此即使原始图片从手机相册或文件夹中删除，应用内的徽章仍然可以继续使用。
+项目使用 Unity `2022.3.62f2c1`，提供以下编辑器菜单：
 
-当前问题和操作日志不会自动持久化；结果在提示弹窗中选择不保存后会立即删除。
+- `Tools/Decision Disc/Setup Android`
+- `Tools/Decision Disc/Build APK`
 
-## 随机概率规则
-
-- 每个徽章具有独立的 YES 基础概率，范围为 0%–100%，默认 50%。
-- 力度会围绕基础概率调整最终 YES 概率。
-- 基础概率为 0% 时必定得到 NO。
-- 基础概率为 100% 时必定得到 YES。
-- 使用系统加密随机数按照最终概率抽取结果；界面不额外显示随机模式开关。
-
-## Unity 编辑器菜单
-
-- `Tools/Decision Disc/Setup Android`：设置竖屏方向、包名、最低 Android API、IL2CPP/ARM64，并创建运行场景。
-- `Tools/Decision Disc/Build APK`：检查 Android Build Support、SDK、NDK 和 OpenJDK，然后构建带版本号的 APK，例如 `Builds/YesNoFilp-v1.3.8.apk`。
-
-如果构建组件缺失，命令会明确列出缺少的组件。只有目标 APK 确实存在且文件大小大于零时，才会报告构建成功。
-
-## Android 签名
-
-Android 构建使用项目专用的本地签名文件：
-
-- 签名配置：`.signing/signing.local.json`
-- 签名密钥：`.signing/YesNoFilp.keystore`
-
-整个 `.signing` 目录已被 Git 忽略，因为其中包含升级签名所需的私密信息。请安全备份该目录；未来 APK 必须继续使用同一签名，才能覆盖安装和保留应用数据。
-
-旧的默认调试签名版本无法被项目专用签名版本直接覆盖，需要先卸载旧版本。使用项目专用签名安装后，后续版本可以正常覆盖升级。
-
-## 命令行验证与构建
-
-```powershell
-& 'C:\Program Files\Unity\Hub\Editor\2022.3.62f2c1\Editor\Unity.exe' `
-  -batchmode -quit -projectPath . `
-  -executeMethod DecisionDisc.Editor.DecisionDiscBuild.ValidateProject `
-  -logFile validate.log
-
-& 'C:\Program Files\Unity\Hub\Editor\2022.3.62f2c1\Editor\Unity.exe' `
-  -batchmode -quit -projectPath . `
-  -executeMethod DecisionDisc.Editor.DecisionDiscBuild.BuildApk `
-  -logFile build-android.log
-```
-
-## JSON 格式
-
-历史导出文件包含：
-
-- `format`：文件类型标识。
-- `version`：整数格式版本。
-- `exportedAtUtc`：导出时间。
-- `records`：已保存记录数组。
-
-当前支持导入版本 `1`。应用会在修改任何本地数据之前检查文件、显示预览，并要求用户选择“合并”或“替换”；不支持的版本会被拒绝。
-
-## 项目约束
-
-- 本项目完全独立，不读取、复制或修改 `external-local-project` 项目的任何内容。
-- Unity 版本固定为 `2022.3.62f2c1`。
-- 不提交 `Library`、`Logs`、`UserSettings`、APK、签名密钥或其他生成产物。
+构建脚本会检查 Android Build Support、SDK、NDK 和 OpenJDK，并生成带版本号的 APK。正式 APK 使用本地项目签名；签名文件和密码配置均被 Git 忽略，不包含在公开仓库中。

@@ -6,7 +6,7 @@ This repository is the standalone **Decision Disc / YES NO Flip** Unity project.
 
 ## Hard boundaries
 
-- Do not read, copy, reference, or modify any `external-local-project` project or its assets.
+- Do not read, copy, reference, or modify projects or assets outside this repository.
 - Keep the project self-contained under this repository root.
 - Use Unity `2022.3.62f2c1` for builds.
 - Never persist an unsaved question or throw result. History is written only after the user presses **Save this record**.
