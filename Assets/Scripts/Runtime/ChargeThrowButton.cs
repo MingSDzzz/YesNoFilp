@@ -11,6 +11,7 @@ namespace DecisionDisc
         public Action<float, string, float> Released;
         public Text Label;
         public Image Fill;
+        public bool Interactable { get; private set; } = true;
         private bool charging;
         private float downTime;
         private float maxPressure;
@@ -20,6 +21,7 @@ namespace DecisionDisc
 
         public void OnPointerDown(PointerEventData eventData)
         {
+            if (!Interactable || charging) return;
             charging = true;
             downTime = Time.unscaledTime;
             maxPressure = ReadPressure(eventData);
@@ -40,10 +42,23 @@ namespace DecisionDisc
         public void OnPointerUp(PointerEventData eventData)
         {
             if (!charging) return;
+            FinishCharge(eventData);
+        }
+
+        public void SetInteractable(bool value)
+        {
+            Interactable = value;
+            if (!value) charging = false;
+            SetVisual(0f);
+        }
+
+        private void FinishCharge(PointerEventData eventData)
+        {
+            if (!charging) return;
             charging = false;
             float heldSeconds = Mathf.Clamp(Time.unscaledTime - downTime, 0f, 3f);
             float duration = Mathf.Clamp01(heldSeconds / 3f);
-            maxPressure = Mathf.Max(maxPressure, ReadPressure(eventData));
+            if (eventData != null) maxPressure = Mathf.Max(maxPressure, ReadPressure(eventData));
             float strength;
             string source;
             if (maxPressure > 0.01f && Mathf.Abs(maxPressure - 1f) > 0.01f)
@@ -65,13 +80,14 @@ namespace DecisionDisc
         private void Update()
         {
             if (!charging) return;
-            SetVisual(Mathf.Clamp01((Time.unscaledTime - downTime) / 3f));
+            float elapsed = Time.unscaledTime - downTime;
+            SetVisual(Mathf.Clamp01(elapsed / 3f));
         }
 
         private void SetVisual(float value)
         {
             if (Fill != null) Fill.fillAmount = value;
-            if (Label != null) Label.text = value > 0f ? "蓄力中  " + Mathf.RoundToInt(value * 100f) + "%" : "按住蓄力，松开投掷";
+            if (Label != null) Label.text = value > 0f ? "蓄力中  " + Mathf.RoundToInt(value * 100f) + "%" : "按住蓄力，最长 3 秒达到满力";
         }
 
         private static float ReadPressure(PointerEventData eventData)

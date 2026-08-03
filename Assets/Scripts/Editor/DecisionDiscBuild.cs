@@ -13,6 +13,7 @@ namespace DecisionDisc.Editor
     public static class DecisionDiscBuild
     {
         private const string ScenePath = "Assets/Scenes/Main.unity";
+        private const string AppIconPath = "Assets/Resources/Theme/app-launcher-icon.png";
         private const string SigningConfigPath = ".signing/signing.local.json";
 
         [Serializable]
@@ -29,9 +30,12 @@ namespace DecisionDisc.Editor
         {
             PlayerSettings.productName = "YES NO 决策徽章";
             PlayerSettings.companyName = "Personal";
-            PlayerSettings.bundleVersion = "1.3.6";
+            PlayerSettings.bundleVersion = "1.3.7";
             PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.personal.decisiondisc");
-            PlayerSettings.Android.bundleVersionCode = 12;
+            PlayerSettings.Android.bundleVersionCode = 13;
+            Texture2D appIcon = AssetDatabase.LoadAssetAtPath<Texture2D>(AppIconPath);
+            if (appIcon == null) throw new BuildFailedException("Android 启动图标缺失：" + AppIconPath);
+            PlayerSettings.SetIconsForTargetGroup(BuildTargetGroup.Android, new[] { appIcon });
             // Unity 2022.3 Personal requires the Unity splash screen. Keep it static,
             // use the app's light background, and avoid claiming it can be disabled.
             PlayerSettings.SplashScreen.show = true;

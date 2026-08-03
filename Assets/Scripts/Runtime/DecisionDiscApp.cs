@@ -37,7 +37,7 @@ namespace DecisionDisc
         private readonly List<Text> throwDiscLabels = new List<Text>();
         private readonly List<Vector2> throwDiscBasePositions = new List<Vector2>();
         private Text status;
-        private Text modeText;
+        private ChargeThrowButton chargeButton;
         private Text selectedBadgeText;
         private Text seriesText;
         private Transform badgeList;
@@ -77,7 +77,7 @@ namespace DecisionDisc
         private BadgeDefinition imageTarget;
         private bool imageTargetIsYes;
         private PendingDecision pending;
-        private DecisionMode mode = DecisionMode.Fair5050;
+        private DecisionMode mode = DecisionMode.StrengthInfluences;
         private Sprite circleSprite;
         private Texture2D defaultYesTexture;
         private Texture2D defaultNoTexture;
@@ -177,7 +177,7 @@ namespace DecisionDisc
             var page = Page("ThrowPage", parent);
             Text title = Label("YES / NO 决策", page.transform, 46, TextAnchor.MiddleCenter, PrimaryText);
             SetHeight(title.rectTransform, 62);
-            Text sub = Label("按住蓄力，松开投掷", page.transform, 24, TextAnchor.MiddleCenter, SecondaryText); SetHeight(sub.rectTransform, 38);
+            Text sub = Label("按住蓄力，3 秒达到满力，松开投掷", page.transform, 24, TextAnchor.MiddleCenter, SecondaryText); SetHeight(sub.rectTransform, 38);
 
             RectTransform visualStage = Rect("VisualStage", page.transform); SetHeight(visualStage, 520);
             homeFaces = Rect("HomeFaces", visualStage); Stretch((RectTransform)homeFaces);
@@ -196,8 +196,6 @@ namespace DecisionDisc
             switchBadgeRect.pivot = new Vector2(1f, .5f); switchBadgeRect.anchoredPosition = Vector2.zero; switchBadgeRect.sizeDelta = new Vector2(150, 0);
 
             questionInput = Input("可选：输入本次要决定的问题", page.transform, 104, false);
-            var modeButton = Button("Mode", page.transform, "公平 50 / 50", ToggleMode, Panel, 80);
-            modeText = modeButton.GetComponentInChildren<Text>();
             var seriesButton = Button("Series", page.transform, "赛制：1 次决定  ›", () => OpenModal(seriesPanel), Panel, 76);
             seriesText = seriesButton.GetComponentInChildren<Text>();
 
@@ -217,8 +215,8 @@ namespace DecisionDisc
             launchIcon.preserveAspect = true; launchIcon.raycastTarget = false;
             launchIcon.rectTransform.anchorMin = launchIcon.rectTransform.anchorMax = new Vector2(0f, .5f);
             launchIcon.rectTransform.pivot = new Vector2(0f, .5f); launchIcon.rectTransform.anchoredPosition = new Vector2(18f, 0f); launchIcon.rectTransform.sizeDelta = new Vector2(104f, 104f);
-            var chargeLabel = Label("按住蓄力，松开投掷", chargeObject.transform, 40, TextAnchor.MiddleCenter, PrimaryText); Stretch(chargeLabel.rectTransform, 116, 0, 18, 0);
-            var charge = chargeObject.GetComponent<ChargeThrowButton>(); charge.Label = chargeLabel; charge.Fill = fill; charge.Released += Throw;
+            var chargeLabel = Label("按住蓄力，3 秒达到满力", chargeObject.transform, 40, TextAnchor.MiddleCenter, PrimaryText); Stretch(chargeLabel.rectTransform, 116, 0, 18, 0);
+            chargeButton = chargeObject.GetComponent<ChargeThrowButton>(); chargeButton.Label = chargeLabel; chargeButton.Fill = fill; chargeButton.Released += Throw;
 
             status = Label("尚未投掷；结果默认不会保存", page.transform, 30, TextAnchor.MiddleCenter, SecondaryText); SetHeight(status.rectTransform, 70);
             return page;
@@ -249,7 +247,7 @@ namespace DecisionDisc
         private GameObject BuildSettings(Transform parent)
         {
             var page = Page("SettingsPage", parent);
-            Header(page.transform, "设置", "隐私说明、随机模式与问题排查");
+            Header(page.transform, "设置", "隐私说明、数据与问题排查");
             Transform content = ScrollContent("SettingsScroll", page.transform, 0);
             Text appearanceTitle = Label("外观与数据", content, 31, TextAnchor.MiddleLeft, Accent); SetHeight(appearanceTitle.rectTransform, 54);
             Button("Theme", content, lightTheme ? "切换为夜间主题" : "切换为日间主题", ToggleTheme, Panel, 82);
@@ -262,9 +260,9 @@ namespace DecisionDisc
             Button("ExportLog", content, "导出操作日志", ExportOperationLog, Accent, 88);
             logPreview = Label("暂无操作日志。", content, 21, TextAnchor.UpperLeft, PrimaryText); SetHeight(logPreview.rectTransform, 260);
             CardText(content, "隐私\n投掷结果只在确认弹窗中临时存在；选择不保存会立即删除。只有明确保存或导出才会写入文件。");
-            CardText(content, "随机模式\n每个徽章可设置 0%–100% YES 基础概率。公平模式始终为 50/50；力度影响模式会围绕基础概率调整，0% 必定 NO、100% 必定 YES。");
+            CardText(content, "概率规则\n每个徽章可设置 0%–100% YES 基础概率。蓄力会围绕该概率调整结果；0% 必定 NO，100% 必定 YES。");
             CardText(content, "本地存储\n历史记录和徽章图片副本保存在 Application.persistentDataPath。");
-            CardText(content, "版本\nYesNoFilp 1.3.6 · 历史 JSON 格式 v1");
+            CardText(content, "版本\nYesNoFilp 1.3.7 · 历史 JSON 格式 v1");
             return page;
         }
 
@@ -355,11 +353,13 @@ namespace DecisionDisc
             Text imageHint = Label("点击 YES 或 NO 图片即可上传、替换并裁切", badgeDetailPanel.transform, 23, TextAnchor.MiddleCenter, Hex("98A2B3")); SetHeight(imageHint.rectTransform, 52);
             badgeProbabilityText = Label("YES 概率  50%", badgeDetailPanel.transform, 30, TextAnchor.MiddleCenter, Color.white); SetHeight(badgeProbabilityText.rectTransform, 52);
             Transform probabilityRow = Horizontal("ProbabilityControls", badgeDetailPanel.transform, 82);
+            HorizontalLayoutGroup probabilityLayout = probabilityRow.GetComponent<HorizontalLayoutGroup>(); probabilityLayout.childForceExpandWidth = false;
             badgeProbabilitySlider = SliderControl("BadgeProbability", probabilityRow, 0f, 1f, OnProbabilitySliderChanged);
-            badgeProbabilityInput = Input("0–100", probabilityRow, 76, false); SetWidth(badgeProbabilityInput.GetComponent<RectTransform>(), 170);
+            LayoutElement sliderLayout = badgeProbabilitySlider.GetComponent<LayoutElement>(); sliderLayout.flexibleWidth = 1f;
+            badgeProbabilityInput = Input("0–100", probabilityRow, 76, false); SetWidth(badgeProbabilityInput.GetComponent<RectTransform>(), 112);
             badgeProbabilityInput.contentType = InputField.ContentType.IntegerNumber;
             badgeProbabilityInput.onEndEdit.AddListener(ApplyProbabilityInput);
-            Text explanation = Label("可设置 0%–100%。仅在“力度影响概率”模式生效；0% 必定 NO，100% 必定 YES。公平模式始终保持 50/50。", badgeDetailPanel.transform, 24, TextAnchor.MiddleCenter, Hex("98A2B3")); SetHeight(explanation.rectTransform, 100);
+            Text explanation = Label("可设置 0%–100%。蓄力会围绕基础概率调整；0% 必定 NO，100% 必定 YES。", badgeDetailPanel.transform, 24, TextAnchor.MiddleCenter, Hex("98A2B3")); SetHeight(explanation.rectTransform, 86);
             Button("SaveDetail", badgeDetailPanel.transform, "保存徽章设置", SaveBadgeDetail, Accent, 84);
             badgeDetailDeleteButton = Button("DeleteDetail", badgeDetailPanel.transform, "删除此徽章", DeleteDetailBadge, No, 76);
             Button("CloseDetail", badgeDetailPanel.transform, "返回徽章列表", () => CloseModal(badgeDetailPanel), Panel, 76);
@@ -388,7 +388,7 @@ namespace DecisionDisc
             Stretch((RectTransform)seriesPanel.transform, 110, 520, 110, 520);
             var layout = seriesPanel.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(40, 40, 40, 40); layout.spacing = 24; layout.childForceExpandHeight = false;
             Text title = Label("选择投掷赛制", seriesPanel.transform, 42, TextAnchor.MiddleCenter, Color.white); SetHeight(title.rectTransform, 90);
-            Text hint = Label("多局赛制会同时投出对应数量的徽章\n公平模式中，单边出现 0:3 的理论概率为 12.5%", seriesPanel.transform, 24, TextAnchor.MiddleCenter, Hex("D0D5DD")); SetHeight(hint.rectTransform, 86);
+            Text hint = Label("多局赛制会同时投出对应数量的徽章\n每枚徽章都会独立计算结果", seriesPanel.transform, 24, TextAnchor.MiddleCenter, Hex("D0D5DD")); SetHeight(hint.rectTransform, 86);
             Button("One", seriesPanel.transform, "1 次决定", () => SelectSeries(1), Panel, 88);
             Button("Three", seriesPanel.transform, "3 局 2 胜", () => SelectSeries(3), Panel, 88);
             Button("Five", seriesPanel.transform, "5 局 3 胜", () => SelectSeries(5), Panel, 88);
@@ -418,6 +418,8 @@ namespace DecisionDisc
 
         private void Throw(float strength, string source, float heldSeconds)
         {
+            if (pending != null) return;
+            if (chargeButton != null) chargeButton.SetInteractable(false);
             string question = questionInput.text.Trim();
             BadgeDefinition selectedBadge = store.SelectedBadge();
             float effectiveProbability = DecisionEngine.EffectiveYesProbability(strength, mode, selectedBadge.yesProbability);
@@ -549,6 +551,7 @@ namespace DecisionDisc
             pending.SavedRecordId = record.id;
             UserActionLog.Add("明确保存本次记录；结果=" + (pending.IsYes ? "YES" : "NO"));
             pending = null; CloseModal(savePromptPanel); ResetHomeVisuals();
+            if (chargeButton != null) chargeButton.SetInteractable(true);
             status.text = "本次记录已永久保存。"; RefreshHistory();
         }
 
@@ -558,15 +561,9 @@ namespace DecisionDisc
             pending = null;
             CloseModal(savePromptPanel);
             ResetHomeVisuals();
+            if (chargeButton != null) chargeButton.SetInteractable(true);
             status.text = "本次结果已删除。";
             RefreshHistory();
-        }
-
-        private void ToggleMode()
-        {
-            mode = mode == DecisionMode.Fair5050 ? DecisionMode.StrengthInfluences : DecisionMode.Fair5050;
-            modeText.text = ModeLabel(mode);
-            UserActionLog.Add("切换随机模式：" + ModeLabel(mode));
         }
 
         private void SelectSeries(int value)
@@ -614,21 +611,26 @@ namespace DecisionDisc
 
         private void AddBadgeCard(BadgeDefinition badge, bool current)
         {
-            var card = VerticalCard("BadgeCard", badgeList, 440);
-            Transform header = Horizontal("BadgeHeader", card, 46);
-            HorizontalLayoutGroup headerLayout = header.GetComponent<HorizontalLayoutGroup>(); headerLayout.childForceExpandWidth = false;
-            Text handle = Label("☰", header, 35, TextAnchor.MiddleCenter, Accent); SetWidth(handle.rectTransform, 52);
-            Text name = Label((current ? "使用中 · " : "") + badge.name, header, 31, TextAnchor.MiddleLeft, current ? Accent : PrimaryText);
-            LayoutElement nameLayout = name.gameObject.AddComponent<LayoutElement>(); nameLayout.flexibleWidth = 1f;
-            var previews = Horizontal("FacePreviews", card, 220);
-            AddFacePreview(previews, badge, true, !badge.builtIn);
-            AddFacePreview(previews, badge, false, !badge.builtIn);
-            var actions = Horizontal("BadgeActions", card, 62);
-            Button use = Button("Use", actions, current ? "当前使用中" : "设为当前徽章", () => SelectBadgeForUse(badge), current ? Panel : Accent, 60); use.interactable = !current;
-            Button("OpenDetail", actions, "徽章设置  ›", () => OpenBadgeDetail(badge), Panel, 60);
+            var card = VerticalCard("BadgeCard", badgeList, 370);
+            RectTransform header = Rect("BadgeHeader", card); SetHeight(header, 48);
+            Text handle = Label("☰", header, 35, TextAnchor.MiddleCenter, Accent);
+            handle.rectTransform.anchorMin = new Vector2(0f, 0f); handle.rectTransform.anchorMax = new Vector2(0f, 1f);
+            handle.rectTransform.pivot = new Vector2(0f, .5f); handle.rectTransform.anchoredPosition = Vector2.zero; handle.rectTransform.sizeDelta = new Vector2(58f, 0f);
+            Text name = Label((current ? "使用中 · " : "") + badge.name, header, 31, TextAnchor.MiddleCenter, current ? Accent : PrimaryText);
+            Stretch(name.rectTransform, 64, 0, 64, 0);
+
+            Transform body = Horizontal("BadgeBody", card, 284);
+            HorizontalLayoutGroup bodyLayout = body.GetComponent<HorizontalLayoutGroup>(); bodyLayout.childForceExpandWidth = false; bodyLayout.spacing = 14;
+            AddFacePreview(body, badge, true, !badge.builtIn);
+            AddFacePreview(body, badge, false, !badge.builtIn);
+            Transform info = VerticalContainer("BadgeInfo", body, false); SetWidth((RectTransform)info, 196);
+            Button use = Button("Use", info, current ? "当前使用中" : "设为当前", () => SelectBadgeForUse(badge), current ? Panel : Accent, 58); use.interactable = !current;
+            Button("OpenDetail", info, "徽章设置  ›", () => OpenBadgeDetail(badge), Panel, 58);
             GetBadgeStats(badge.id, out int total, out int yesCount, out int noCount);
             float yesPercent = total == 0 ? 0f : yesCount * 100f / total;
-            Text stats = Label("YES " + Mathf.RoundToInt(badge.yesProbability * 100) + "%  ·  使用 " + total + " 次  ·  YES " + yesCount + "（" + yesPercent.ToString("0.#") + "%）  ·  NO " + noCount + "（" + (total == 0 ? 0f : 100f - yesPercent).ToString("0.#") + "%）", card, 19, TextAnchor.MiddleCenter, SecondaryText); SetHeight(stats.rectTransform, 40); stats.horizontalOverflow = HorizontalWrapMode.Overflow;
+            Text probability = Label("YES 概率 " + Mathf.RoundToInt(badge.yesProbability * 100) + "%", info, 21, TextAnchor.MiddleCenter, Accent); SetHeight(probability.rectTransform, 38);
+            Text usage = Label("使用 " + total + " 次", info, 20, TextAnchor.MiddleCenter, SecondaryText); SetHeight(usage.rectTransform, 34);
+            Text results = Label("YES " + yesCount + "（" + yesPercent.ToString("0.#") + "%）\nNO " + noCount + "（" + (total == 0 ? 0f : 100f - yesPercent).ToString("0.#") + "%）", info, 18, TextAnchor.MiddleCenter, SecondaryText); SetHeight(results.rectTransform, 56);
             BadgeReorderDragHandler drag = handle.gameObject.AddComponent<BadgeReorderDragHandler>();
             drag.Bind((RectTransform)card, badgeList, targetIndex => ReorderBadge(badge, targetIndex));
         }
@@ -999,10 +1001,10 @@ namespace DecisionDisc
             RefreshLogPreview();
         }
 
-        private static string ModeLabel(DecisionMode value) { return value == DecisionMode.Fair5050 ? "公平 50 / 50" : "力度影响概率"; }
+        private static string ModeLabel(DecisionMode value) { return value == DecisionMode.Fair5050 ? "固定 50 / 50" : "徽章概率"; }
         private static string SeriesLabel(int value) { return value == 3 ? "3 局 2 胜" : value == 5 ? "5 局 3 胜" : "1 次决定"; }
         private static string SeriesScore(PendingDecision value) { return value.SeriesLength <= 1 ? "单次决定" : "比分 " + value.YesWins + ":" + value.NoWins; }
-        private static string StoredModeLabel(string value) { return value == DecisionMode.Fair5050.ToString() ? "公平 50 / 50" : "力度影响概率"; }
+        private static string StoredModeLabel(string value) { return value == DecisionMode.Fair5050.ToString() ? "固定 50 / 50" : "徽章概率"; }
         private static string StrengthSourceLabel(string value)
         {
             if (value == "pressure") return "真实触摸压力";
