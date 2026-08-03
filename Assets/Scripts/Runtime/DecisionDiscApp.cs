@@ -149,21 +149,21 @@ namespace DecisionDisc
         private GameObject BuildHome(Transform parent)
         {
             var page = Page("ThrowPage", parent);
-            Text title = Label("YES / NO 决策徽章", page.transform, 54, TextAnchor.MiddleCenter, PrimaryText);
-            SetHeight(title.rectTransform, 90);
-            Text sub = Label("问题可留空 · 按住越久飞得越高", page.transform, 28, TextAnchor.MiddleCenter, SecondaryText); SetHeight(sub.rectTransform, 50);
+            Text title = Label("YES / NO", page.transform, 42, TextAnchor.MiddleCenter, PrimaryText);
+            SetHeight(title.rectTransform, 62);
+            Text sub = Label("按住蓄力，松开投掷", page.transform, 24, TextAnchor.MiddleCenter, SecondaryText); SetHeight(sub.rectTransform, 38);
 
-            RectTransform visualStage = Rect("VisualStage", page.transform); SetHeight(visualStage, 410);
+            RectTransform visualStage = Rect("VisualStage", page.transform); SetHeight(visualStage, 520);
             homeFaces = Rect("HomeFaces", visualStage); Stretch((RectTransform)homeFaces);
-            var homeLayout = homeFaces.gameObject.AddComponent<HorizontalLayoutGroup>(); homeLayout.spacing = 28; homeLayout.padding = new RectOffset(36, 36, 26, 26); homeLayout.childControlHeight = true; homeLayout.childControlWidth = true; homeLayout.childForceExpandWidth = true;
+            var homeLayout = homeFaces.gameObject.AddComponent<HorizontalLayoutGroup>(); homeLayout.spacing = 34; homeLayout.padding = new RectOffset(18, 18, 10, 10); homeLayout.childControlHeight = true; homeLayout.childControlWidth = true; homeLayout.childForceExpandWidth = true;
             throwStage = Rect("ThrowStage", visualStage); Stretch((RectTransform)throwStage);
             var throwLayout = throwStage.gameObject.AddComponent<HorizontalLayoutGroup>(); throwLayout.spacing = 12; throwLayout.padding = new RectOffset(12, 12, 30, 30); throwLayout.childControlHeight = true; throwLayout.childControlWidth = true; throwLayout.childForceExpandWidth = true;
             throwStage.gameObject.SetActive(false);
             RefreshHomeFaces();
 
-            var badgeSwitch = Horizontal("BadgeSwitch", page.transform, 76);
-            selectedBadgeText = Label("当前徽章：" + store.SelectedBadge().name, badgeSwitch, 27, TextAnchor.MiddleLeft, PrimaryText);
-            Button("SwitchBadge", badgeSwitch, "切换徽章", () => ShowPage(1), Panel, 72);
+            var badgeSwitch = Horizontal("BadgeSwitch", page.transform, 50);
+            selectedBadgeText = Label("使用中 · " + store.SelectedBadge().name, badgeSwitch, 22, TextAnchor.MiddleLeft, SecondaryText);
+            Button("SwitchBadge", badgeSwitch, "更换", () => ShowPage(1), Panel, 50);
 
             questionInput = Input("可选：输入本次要决定的问题", page.transform, 104, false);
             var modeButton = Button("Mode", page.transform, "公平 50 / 50", ToggleMode, Panel, 80);
@@ -222,7 +222,7 @@ namespace DecisionDisc
             CardText(content, "隐私\n当前问题、未保存结果和操作日志默认只在内存中。只有明确保存或导出才会写入文件。");
             CardText(content, "随机模式\n每个徽章可设置 0%–100% YES 基础概率。公平模式始终为 50/50；力度影响模式会围绕基础概率调整，0% 必定 NO、100% 必定 YES。");
             CardText(content, "本地存储\n历史记录和徽章图片副本保存在 Application.persistentDataPath。");
-            CardText(content, "版本\nYesNoFilp 1.3.1 · 历史 JSON 格式 v1");
+            CardText(content, "版本\nYesNoFilp 1.3.2 · 历史 JSON 格式 v1");
             return page;
         }
 
@@ -353,25 +353,65 @@ namespace DecisionDisc
 
         private IEnumerator AnimateThrow(PendingDecision value)
         {
-            float duration = Mathf.Clamp(pendingHoldSeconds, 1f, 5f);
+            float holdFactor = Mathf.InverseLerp(0f, 5f, Mathf.Clamp(pendingHoldSeconds, 0f, 5f));
+            // Even a short press gets a readable, weighty throw. Longer presses still
+            // travel higher and extend the full motion, capped at five seconds.
+            float duration = Mathf.Lerp(1.9f, 5f, Mathf.SmoothStep(0f, 1f, holdFactor));
             BadgeDefinition animationBadge = store.Badges.badges.Find(item => item.id == value.BadgeId) ?? store.SelectedBadge();
             PrepareThrowDiscs(value.SeriesLength, animationBadge);
+            status.text = "投掷中…";
             int[] lastFaces = new int[throwDiscs.Count]; for (int i = 0; i < lastFaces.Length; i++) lastFaces[i] = -1;
             for (float t = 0; t < duration; t += Time.unscaledDeltaTime)
             {
                 float p = t / duration;
-                float holdFactor = Mathf.InverseLerp(0f, 5f, Mathf.Clamp(pendingHoldSeconds, 0f, 5f));
-                float height = Mathf.Sin(p * Mathf.PI) * Mathf.Lerp(220f, 620f, holdFactor);
                 for (int i = 0; i < throwDiscs.Count; i++)
                 {
                     Image item = throwDiscs[i];
-                    float phase = p + i * .07f;
-                    bool faceYes = Mathf.FloorToInt(phase * (12 + value.Strength * 8)) % 2 == 0;
+                    float stagger = i * .018f;
+                    float localP = Mathf.Clamp01((p - stagger) / Mathf.Max(.8f, 1f - stagger));
+                    float y;
+                    float rotationDegrees;
+                    Vector3 scale = Vector3.one;
+
+                    if (localP < .12f)
+                    {
+                        // A short anticipation makes the release feel deliberate instead of instant.
+                        float anticipation = Mathf.SmoothStep(0f, 1f, localP / .12f);
+                        y = -24f * anticipation;
+                        rotationDegrees = anticipation * 45f;
+                        scale = new Vector3(1f + .06f * anticipation, 1f - .12f * anticipation, 1f);
+                    }
+                    else if (localP < .86f)
+                    {
+                        float flight = (localP - .12f) / .74f;
+                        float height01 = flight < .5f
+                            ? 1f - Mathf.Pow(1f - flight * 2f, 2.35f)
+                            : 1f - Mathf.Pow((flight - .5f) * 2f, 1.65f);
+                        y = height01 * Mathf.Lerp(270f, 680f, holdFactor);
+                        float turns = Mathf.Lerp(4.5f, 9f, Mathf.Max(holdFactor, value.Strength * .7f));
+                        rotationDegrees = 45f + flight * turns * 360f + i * 24f;
+                        float edge = Mathf.Abs(Mathf.Cos(rotationDegrees * Mathf.Deg2Rad));
+                        scale = new Vector3(Mathf.Max(.1f, edge), 1f, 1f);
+                    }
+                    else
+                    {
+                        float settle = (localP - .86f) / .14f;
+                        float damping = 1f - settle;
+                        y = Mathf.Abs(Mathf.Sin(settle * Mathf.PI * 2f)) * 34f * damping;
+                        float turns = Mathf.Lerp(4.5f, 9f, Mathf.Max(holdFactor, value.Strength * .7f));
+                        rotationDegrees = 45f + turns * 360f + i * 24f;
+                        float squash = Mathf.Sin(settle * Mathf.PI) * damping;
+                        scale = new Vector3(1f + .08f * squash, 1f - .08f * squash, 1f);
+                    }
+
+                    bool faceYes = localP >= .86f && i < value.RoundResults.Length
+                        ? value.RoundResults[i] == 'Y'
+                        : Mathf.FloorToInt((rotationDegrees + 90f) / 180f) % 2 == 0;
                     int faceIndex = faceYes ? 1 : 0;
                     if (lastFaces[i] != faceIndex) { RenderDiscFace(item, throwDiscLabels[i], faceYes, animationBadge); lastFaces[i] = faceIndex; }
-                    item.rectTransform.anchoredPosition = Vector2.up * (height * Mathf.Lerp(.88f, 1f, (i % 3) / 2f));
-                    item.rectTransform.localEulerAngles = new Vector3(0, phase * (720 + 1080 * value.Strength), p * (i % 2 == 0 ? 70 : -70));
-                    item.rectTransform.localScale = new Vector3(Mathf.Max(.08f, Mathf.Abs(Mathf.Cos(phase * Mathf.PI * (5 + value.Strength * 5)))), 1, 1);
+                    item.rectTransform.anchoredPosition = Vector2.up * y;
+                    item.rectTransform.localEulerAngles = new Vector3(0, rotationDegrees, Mathf.Sin(localP * Mathf.PI) * (i % 2 == 0 ? 16f : -16f));
+                    item.rectTransform.localScale = scale;
                 }
                 yield return null;
             }
@@ -514,7 +554,7 @@ namespace DecisionDisc
         {
             if (selectedBadgeText == null) return;
             BadgeDefinition badge = store.SelectedBadge();
-            selectedBadgeText.text = "当前徽章：" + badge.name + "  ·  YES 基础概率 " + Mathf.RoundToInt(badge.yesProbability * 100) + "%";
+            selectedBadgeText.text = "使用中 · " + badge.name;
         }
 
         private void OpenBadgeDetail(BadgeDefinition badge)
@@ -739,7 +779,7 @@ namespace DecisionDisc
         {
             Clear(throwStage); throwDiscs.Clear(); throwDiscLabels.Clear();
             homeFaces.gameObject.SetActive(false); throwStage.gameObject.SetActive(true);
-            float imageSize = count == 1 ? 330f : count == 3 ? 250f : 165f;
+            float imageSize = count == 1 ? 390f : count == 3 ? 275f : 175f;
             for (int i = 0; i < count; i++)
             {
                 Transform cell = VerticalContainer("ThrowCell", throwStage, true);
