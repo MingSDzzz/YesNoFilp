@@ -34,6 +34,7 @@ namespace DecisionDisc
         private Transform throwStage;
         private readonly List<Image> throwDiscs = new List<Image>();
         private readonly List<Text> throwDiscLabels = new List<Text>();
+        private readonly List<Vector2> throwDiscBasePositions = new List<Vector2>();
         private Text status;
         private Text modeText;
         private Text selectedBadgeText;
@@ -161,9 +162,13 @@ namespace DecisionDisc
             throwStage.gameObject.SetActive(false);
             RefreshHomeFaces();
 
-            var badgeSwitch = Horizontal("BadgeSwitch", page.transform, 50);
+            RectTransform badgeSwitch = Rect("BadgeSwitch", page.transform); SetHeight(badgeSwitch, 50);
             selectedBadgeText = Label("使用中 · " + store.SelectedBadge().name, badgeSwitch, 22, TextAnchor.MiddleLeft, SecondaryText);
-            Button("SwitchBadge", badgeSwitch, "更换", () => ShowPage(1), Panel, 50);
+            Stretch(selectedBadgeText.rectTransform, 0, 0, 170, 0);
+            Button switchBadge = Button("SwitchBadge", badgeSwitch, "更换", () => ShowPage(1), Panel, 50);
+            RectTransform switchBadgeRect = switchBadge.GetComponent<RectTransform>();
+            switchBadgeRect.anchorMin = new Vector2(1f, 0f); switchBadgeRect.anchorMax = Vector2.one;
+            switchBadgeRect.pivot = new Vector2(1f, .5f); switchBadgeRect.anchoredPosition = Vector2.zero; switchBadgeRect.sizeDelta = new Vector2(150, 0);
 
             questionInput = Input("可选：输入本次要决定的问题", page.transform, 104, false);
             var modeButton = Button("Mode", page.transform, "公平 50 / 50", ToggleMode, Panel, 80);
@@ -359,6 +364,9 @@ namespace DecisionDisc
             float duration = Mathf.Lerp(1.9f, 5f, Mathf.SmoothStep(0f, 1f, holdFactor));
             BadgeDefinition animationBadge = store.Badges.badges.Find(item => item.id == value.BadgeId) ?? store.SelectedBadge();
             PrepareThrowDiscs(value.SeriesLength, animationBadge);
+            Canvas.ForceUpdateCanvases();
+            throwDiscBasePositions.Clear();
+            for (int i = 0; i < throwDiscs.Count; i++) throwDiscBasePositions.Add(throwDiscs[i].rectTransform.anchoredPosition);
             status.text = "投掷中…";
             int[] lastFaces = new int[throwDiscs.Count]; for (int i = 0; i < lastFaces.Length; i++) lastFaces[i] = -1;
             for (float t = 0; t < duration; t += Time.unscaledDeltaTime)
@@ -409,7 +417,7 @@ namespace DecisionDisc
                         : Mathf.FloorToInt((rotationDegrees + 90f) / 180f) % 2 == 0;
                     int faceIndex = faceYes ? 1 : 0;
                     if (lastFaces[i] != faceIndex) { RenderDiscFace(item, throwDiscLabels[i], faceYes, animationBadge); lastFaces[i] = faceIndex; }
-                    item.rectTransform.anchoredPosition = Vector2.up * y;
+                    item.rectTransform.anchoredPosition = throwDiscBasePositions[i] + Vector2.up * y;
                     item.rectTransform.localEulerAngles = new Vector3(0, rotationDegrees, Mathf.Sin(localP * Mathf.PI) * (i % 2 == 0 ? 16f : -16f));
                     item.rectTransform.localScale = scale;
                 }
@@ -417,7 +425,7 @@ namespace DecisionDisc
             }
             for (int i = 0; i < throwDiscs.Count; i++)
             {
-                Image item = throwDiscs[i]; item.rectTransform.anchoredPosition = Vector2.zero; item.rectTransform.localEulerAngles = Vector3.zero; item.rectTransform.localScale = Vector3.one;
+                Image item = throwDiscs[i]; item.rectTransform.anchoredPosition = throwDiscBasePositions[i]; item.rectTransform.localEulerAngles = Vector3.zero; item.rectTransform.localScale = Vector3.one;
                 bool roundYes = i < value.RoundResults.Length && value.RoundResults[i] == 'Y';
                 RenderDiscFace(item, throwDiscLabels[i], roundYes, animationBadge);
             }
@@ -777,7 +785,7 @@ namespace DecisionDisc
 
         private void PrepareThrowDiscs(int count, BadgeDefinition badge)
         {
-            Clear(throwStage); throwDiscs.Clear(); throwDiscLabels.Clear();
+            Clear(throwStage); throwDiscs.Clear(); throwDiscLabels.Clear(); throwDiscBasePositions.Clear();
             homeFaces.gameObject.SetActive(false); throwStage.gameObject.SetActive(true);
             float imageSize = count == 1 ? 390f : count == 3 ? 275f : 175f;
             for (int i = 0; i < count; i++)
@@ -1033,8 +1041,8 @@ namespace DecisionDisc
 
         private static void Stretch(RectTransform rect, float left = 0, float bottom = 0, float right = 0, float top = 0)
         { rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one; rect.offsetMin = new Vector2(left, bottom); rect.offsetMax = new Vector2(-right, -top); }
-        private static void SetHeight(RectTransform rect, float height) { var e = rect.gameObject.GetComponent<LayoutElement>() ?? rect.gameObject.AddComponent<LayoutElement>(); e.preferredHeight = height; e.minHeight = height; }
-        private static void SetWidth(RectTransform rect, float width) { var e = rect.gameObject.GetComponent<LayoutElement>() ?? rect.gameObject.AddComponent<LayoutElement>(); e.preferredWidth = width; e.minWidth = width; }
+        private static void SetHeight(RectTransform rect, float height) { var e = rect.gameObject.GetComponent<LayoutElement>() ?? rect.gameObject.AddComponent<LayoutElement>(); e.preferredHeight = height; e.minHeight = height; e.flexibleHeight = 0; }
+        private static void SetWidth(RectTransform rect, float width) { var e = rect.gameObject.GetComponent<LayoutElement>() ?? rect.gameObject.AddComponent<LayoutElement>(); e.preferredWidth = width; e.minWidth = width; e.flexibleWidth = 0; }
         private static void SetFlexible(RectTransform rect) { var e = rect.gameObject.GetComponent<LayoutElement>() ?? rect.gameObject.AddComponent<LayoutElement>(); e.flexibleHeight = 1; }
         private static void Clear(Transform parent) { for (int i = parent.childCount - 1; i >= 0; i--) { GameObject child = parent.GetChild(i).gameObject; child.SetActive(false); Destroy(child); } }
         private static string Present(string path) { return string.IsNullOrEmpty(path) || !File.Exists(path) ? "默认文字面" : Path.GetFileName(path) + "（应用内部副本）"; }

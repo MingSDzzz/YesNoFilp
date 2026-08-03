@@ -48,6 +48,9 @@ namespace DecisionDisc.Editor
             PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevelAuto;
             PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
             PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, ScriptingImplementation.IL2CPP);
+            // Runtime-created uGUI input modules are discovered dynamically. Keep
+            // their engine-side classes so IL2CPP does not strip class ID 115.
+            PlayerSettings.stripEngineCode = false;
             EditorUserBuildSettings.buildAppBundle = false;
             CreateScene();
             AssetDatabase.SaveAssets();
