@@ -10,10 +10,12 @@ namespace DecisionDisc
         private RenderTexture renderTexture;
         private GameObject renderRoot;
         private GameObject coin;
+        private Rigidbody body;
         private Mesh mesh;
         private Material frontMaterial;
         private Material backMaterial;
         private Material edgeMaterial;
+        private Quaternion correctionStart;
 
         public RectTransform RectTransform => (RectTransform)transform;
 
@@ -46,6 +48,17 @@ namespace DecisionDisc
             MeshFilter filter = coin.AddComponent<MeshFilter>();
             filter.sharedMesh = mesh;
             MeshRenderer renderer = coin.AddComponent<MeshRenderer>();
+            MeshCollider collider = coin.AddComponent<MeshCollider>();
+            collider.sharedMesh = mesh;
+            collider.convex = true;
+            body = coin.AddComponent<Rigidbody>();
+            body.useGravity = false;
+            body.isKinematic = true;
+            body.interpolation = RigidbodyInterpolation.Interpolate;
+            body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+            body.constraints = RigidbodyConstraints.FreezePosition;
+            body.maxAngularVelocity = 45f;
+            body.angularDrag = .18f;
 
             Shader coinShader = Resources.Load<Shader>("DecisionDiscCoin");
             if (coinShader == null) coinShader = Shader.Find("UI/Default");
@@ -87,7 +100,47 @@ namespace DecisionDisc
 
         public void SetPose(float flipDegrees, float yawDegrees, float rollDegrees)
         {
-            if (coin != null) coin.transform.localRotation = Quaternion.Euler(flipDegrees, yawDegrees, rollDegrees);
+            if (coin == null) return;
+            ApplyKinematicRotation(Quaternion.Euler(flipDegrees, yawDegrees, rollDegrees));
+        }
+
+        public void BeginPhysicsSpin(Vector3 angularVelocity)
+        {
+            if (body == null) return;
+            body.isKinematic = false;
+            body.angularVelocity = angularVelocity;
+        }
+
+        public void BeginResultCorrection()
+        {
+            if (body != null)
+            {
+                body.angularVelocity = Vector3.zero;
+                body.isKinematic = true;
+            }
+            correctionStart = coin == null ? Quaternion.identity : coin.transform.localRotation;
+        }
+
+        public void CorrectToResult(bool yes, float progress)
+        {
+            if (coin == null) return;
+            Quaternion target = Quaternion.Euler(yes ? 0f : 180f, 0f, 0f);
+            ApplyKinematicRotation(Quaternion.Slerp(correctionStart, target, Mathf.SmoothStep(0f, 1f, progress)));
+        }
+
+        private void ApplyKinematicRotation(Quaternion localRotation)
+        {
+            if (body != null)
+            {
+                body.angularVelocity = Vector3.zero;
+                body.isKinematic = true;
+            }
+            coin.transform.localRotation = localRotation;
+            if (body != null)
+            {
+                body.rotation = coin.transform.rotation;
+                body.Sleep();
+            }
         }
 
         private static Mesh CreateCoinMesh(int segments, float radius, float thickness)

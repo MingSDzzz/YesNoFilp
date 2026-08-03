@@ -2,7 +2,7 @@
 
 一个使用 Unity `2022.3.62f2c1` 从零制作、隐私优先的 Android 个人决策应用。
 
-当前 Android 版本：`1.3.3`（`versionCode 9`）。
+当前 Android 版本：`1.3.4`（`versionCode 10`）。
 
 ## 主要功能
 
@@ -18,7 +18,8 @@
 - 默认徽章会在圆面中央显示 YES/NO，所有徽章同时在图片下方显示对应标签；用户图片本身不会被额外文字遮挡。
 - 徽章支持改名、预览、切换、拖动排序、修改概率和删除；所有徽章统一显示在一个列表中，当前使用项以状态标记区分，并显示总使用次数、YES/NO 次数及百分比。
 - 概率控件包含完整轨道、圆形滑块和 0–100 数字输入框。
-- 投掷动画会交替展示当前徽章真实的 YES 面与 NO 面。
+- 投掷使用混合物理：重力抛物线与 Rigidbody/PhysX 角速度负责飞行质感，落地阶段再柔和校正到概率已决定的 YES/NO 面。
+- 日用主题采用原创二次元科幻视觉底图、半透明圆角卡片和图标化导航，素材不复制任何游戏角色、Logo 或界面。
 - 投掷结果只在保存提示弹窗中临时存在；选择“不保存”后立即删除，不进入历史记录。
 - 投掷完成后由弹窗询问是否保存，不在首页常驻显示保存按钮。
 - 历史页只显示明确保存的记录，按时间排序并支持按徽章筛选。
@@ -62,7 +63,7 @@
 ## Unity 编辑器菜单
 
 - `Tools/Decision Disc/Setup Android`：设置竖屏方向、包名、最低 Android API、IL2CPP/ARM64，并创建运行场景。
-- `Tools/Decision Disc/Build APK`：检查 Android Build Support、SDK、NDK 和 OpenJDK，然后构建带版本号的 APK，例如 `Builds/YesNoFilp-v1.3.3.apk`。
+- `Tools/Decision Disc/Build APK`：检查 Android Build Support、SDK、NDK 和 OpenJDK，然后构建带版本号的 APK，例如 `Builds/YesNoFilp-v1.3.4.apk`。
 
 如果构建组件缺失，命令会明确列出缺少的组件。只有目标 APK 确实存在且文件大小大于零时，才会报告构建成功。
 

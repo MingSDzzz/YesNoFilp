@@ -25,6 +25,7 @@ namespace DecisionDisc
         private static Color PrimaryText = Hex("182230");
         private static Color SecondaryText = Hex("667085");
         private static Font font;
+        private static Sprite softRectSprite;
 
         private DecisionStore store;
         private AndroidFileBridge files;
@@ -98,6 +99,7 @@ namespace DecisionDisc
             font = Font.CreateDynamicFontFromOSFont(new[] { "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Droid Sans Fallback", "Arial Unicode MS" }, 32);
             if (font == null) font = Resources.GetBuiltinResource<Font>("Arial.ttf");
             circleSprite = CreateCircleSprite();
+            softRectSprite = CreateRoundedRectSprite();
             store = new DecisionStore();
             files = gameObject.AddComponent<AndroidFileBridge>();
             files.TextImported += PreviewImport;
@@ -133,6 +135,18 @@ namespace DecisionDisc
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1080, 1920); scaler.matchWidthOrHeight = 0.5f;
             Image background = Image("Background", canvasObject.transform, Background); Stretch(background.rectTransform);
+            if (lightTheme)
+            {
+                Texture2D themeArt = Resources.Load<Texture2D>("Theme/resonance-day-background");
+                if (themeArt != null)
+                {
+                    GameObject artObject = new GameObject("ResonanceThemeArt", typeof(RectTransform), typeof(RawImage));
+                    artObject.transform.SetParent(background.transform, false);
+                    RawImage art = artObject.GetComponent<RawImage>(); art.texture = themeArt; art.color = new Color(1f, 1f, 1f, .72f); art.raycastTarget = false;
+                    Stretch(art.rectTransform);
+                    Image veil = Image("ReadabilityVeil", background.transform, new Color(.97f, .99f, 1f, .20f)); Stretch(veil.rectTransform); veil.raycastTarget = false;
+                }
+            }
 
             var safe = Rect("Safe Area", background.transform); Stretch(safe); safe.gameObject.AddComponent<SafeAreaFitter>();
             var pageHost = Rect("Pages", safe); Stretch(pageHost, 0, 94, 0, 0);
@@ -152,7 +166,7 @@ namespace DecisionDisc
         private GameObject BuildHome(Transform parent)
         {
             var page = Page("ThrowPage", parent);
-            Text title = Label("YES / NO", page.transform, 42, TextAnchor.MiddleCenter, PrimaryText);
+            Text title = Label("共鸣抉择", page.transform, 46, TextAnchor.MiddleCenter, PrimaryText);
             SetHeight(title.rectTransform, 62);
             Text sub = Label("按住蓄力，松开投掷", page.transform, 24, TextAnchor.MiddleCenter, SecondaryText); SetHeight(sub.rectTransform, 38);
 
@@ -180,7 +194,10 @@ namespace DecisionDisc
 
             var chargeObject = new GameObject("Charge", typeof(RectTransform), typeof(Image), typeof(ChargeThrowButton));
             chargeObject.transform.SetParent(page.transform, false); SetHeight((RectTransform)chargeObject.transform, 140);
-            chargeObject.GetComponent<Image>().color = lightTheme ? Hex("DDE7F2") : Hex("243B53");
+            Image chargeBackground = chargeObject.GetComponent<Image>();
+            chargeBackground.color = lightTheme ? new Color(.93f, .985f, 1f, .88f) : Hex("243B53");
+            chargeBackground.sprite = softRectSprite; chargeBackground.type = UnityEngine.UI.Image.Type.Sliced;
+            Outline chargeEdge = chargeObject.AddComponent<Outline>(); chargeEdge.effectColor = new Color(Accent.r, Accent.g, Accent.b, .35f); chargeEdge.effectDistance = new Vector2(2f, -2f);
             var fill = Image("Fill", chargeObject.transform, Accent); Stretch(fill.rectTransform); fill.type = UnityEngine.UI.Image.Type.Filled; fill.fillMethod = UnityEngine.UI.Image.FillMethod.Horizontal; fill.fillAmount = 0;
             var chargeLabel = Label("按住蓄力，松开投掷", chargeObject.transform, 40, TextAnchor.MiddleCenter, PrimaryText); Stretch(chargeLabel.rectTransform);
             var charge = chargeObject.GetComponent<ChargeThrowButton>(); charge.Label = chargeLabel; charge.Fill = fill; charge.Released += Throw;
@@ -229,7 +246,7 @@ namespace DecisionDisc
             CardText(content, "隐私\n投掷结果只在确认弹窗中临时存在；选择不保存会立即删除。只有明确保存或导出才会写入文件。");
             CardText(content, "随机模式\n每个徽章可设置 0%–100% YES 基础概率。公平模式始终为 50/50；力度影响模式会围绕基础概率调整，0% 必定 NO、100% 必定 YES。");
             CardText(content, "本地存储\n历史记录和徽章图片副本保存在 Application.persistentDataPath。");
-            CardText(content, "版本\nYesNoFilp 1.3.3 · 历史 JSON 格式 v1");
+            CardText(content, "版本\nYesNoFilp 1.3.4 · 历史 JSON 格式 v1");
             return page;
         }
 
@@ -237,7 +254,7 @@ namespace DecisionDisc
         {
             var nav = Horizontal("Navigation", safe, 94);
             var rt = (RectTransform)nav; rt.anchorMin = new Vector2(0, 0); rt.anchorMax = new Vector2(1, 0); rt.pivot = new Vector2(.5f, 0); rt.anchoredPosition = Vector2.zero; rt.sizeDelta = new Vector2(0, 94);
-            string[] names = { "投掷", "徽章", "记录", "设置" };
+            string[] names = { "◆  投掷", "◉  徽章", "▤  记录", "⚙  设置" };
             for (int i = 0; i < names.Length; i++) { int index = i; Button("Nav" + i, nav, names[i], () => ShowPage(index), Panel, 94); }
         }
 
@@ -368,6 +385,8 @@ namespace DecisionDisc
             Canvas.ForceUpdateCanvases();
             throwDiscBasePositions.Clear();
             for (int i = 0; i < throwDiscs.Count; i++) throwDiscBasePositions.Add(throwDiscs[i].RectTransform.anchoredPosition);
+            bool[] physicsStarted = new bool[throwDiscs.Count];
+            bool[] resultCorrectionStarted = new bool[throwDiscs.Count];
             status.text = "投掷中…";
             for (float t = 0; t < duration; t += Time.unscaledDeltaTime)
             {
@@ -382,10 +401,8 @@ namespace DecisionDisc
                     float tiltDegrees;
                     float rollDegrees;
                     float uniformScale = 1f;
+                    bool applyScriptedPose = true;
                     bool roundYes = i < value.RoundResults.Length && value.RoundResults[i] == 'Y';
-                    int finalHalfTurns = 8 + Mathf.RoundToInt(Mathf.Lerp(0f, 6f, Mathf.Max(holdFactor, value.Strength * .7f)));
-                    if ((finalHalfTurns % 2 == 0) != roundYes) finalHalfTurns++;
-                    float finalFlipDegrees = finalHalfTurns * 180f;
 
                     if (localP < .12f)
                     {
@@ -399,17 +416,20 @@ namespace DecisionDisc
                     else if (localP < .86f)
                     {
                         float flight = (localP - .12f) / .74f;
-                        // Keep the apex inside the portrait safe area. The hold still
-                        // changes both height and duration, but the coin never clips at
-                        // the top of a 720 x 1280 emulator/device viewport.
-                        float height = Mathf.Sin(flight * Mathf.PI) * Mathf.Lerp(190f, 280f, holdFactor);
+                        // Physically valid ballistic arc: y = 4H*t*(1-t), equivalent
+                        // to an initial upward velocity followed by constant gravity.
+                        float height = 4f * Mathf.Lerp(190f, 280f, holdFactor) * flight * (1f - flight);
                         float direction = i % 2 == 0 ? 1f : -1f;
                         float sideways = Mathf.Lerp(-70f * direction, 95f * direction, Mathf.SmoothStep(0f, 1f, flight));
                         travel = new Vector2(sideways, height);
-                        float rotationProgress = Mathf.SmoothStep(0f, 1f, flight);
-                        flipDegrees = Mathf.Lerp(-22f, finalFlipDegrees, rotationProgress);
-                        tiltDegrees = Mathf.Sin(flight * Mathf.PI) * 15f * direction;
-                        rollDegrees = Mathf.Sin(flight * Mathf.PI) * 10f * direction;
+                        flipDegrees = tiltDegrees = rollDegrees = 0f;
+                        if (!physicsStarted[i])
+                        {
+                            float spin = Mathf.Lerp(15f, 30f, Mathf.Max(holdFactor, value.Strength));
+                            item.BeginPhysicsSpin(new Vector3(spin, 2.2f * direction, 1.5f * direction));
+                            physicsStarted[i] = true;
+                        }
+                        applyScriptedPose = false;
                         uniformScale = 1f + Mathf.Sin(flight * Mathf.PI) * .08f;
                     }
                     else
@@ -418,14 +438,19 @@ namespace DecisionDisc
                         float damping = 1f - settle;
                         float direction = i % 2 == 0 ? 1f : -1f;
                         travel = new Vector2(Mathf.Lerp(95f * direction, 0f, Mathf.SmoothStep(0f, 1f, settle)), Mathf.Abs(Mathf.Sin(settle * Mathf.PI * 2f)) * 30f * damping);
-                        flipDegrees = finalFlipDegrees + Mathf.Sin(settle * Mathf.PI * 2f) * 6f * damping;
-                        tiltDegrees = Mathf.Lerp(8f * direction, 0f, settle);
-                        rollDegrees = Mathf.Sin(settle * Mathf.PI) * 5f * direction * damping;
+                        flipDegrees = tiltDegrees = rollDegrees = 0f;
+                        if (!resultCorrectionStarted[i])
+                        {
+                            item.BeginResultCorrection();
+                            resultCorrectionStarted[i] = true;
+                        }
+                        item.CorrectToResult(roundYes, settle);
+                        applyScriptedPose = false;
                         float squash = Mathf.Sin(settle * Mathf.PI) * damping;
                         uniformScale = 1f + .04f * squash;
                     }
 
-                    item.SetPose(flipDegrees, tiltDegrees, rollDegrees);
+                    if (applyScriptedPose) item.SetPose(flipDegrees, tiltDegrees, rollDegrees);
                     item.RectTransform.anchoredPosition = throwDiscBasePositions[i] + travel;
                     item.RectTransform.localScale = Vector3.one * uniformScale;
                 }
@@ -840,11 +865,13 @@ namespace DecisionDisc
 
         private void ApplyThemePalette()
         {
-            Background = lightTheme ? Hex("F4F7FB") : Hex("121826");
-            Panel = lightTheme ? Hex("FFFFFF") : Hex("1D2939");
-            Accent = lightTheme ? Hex("16A394") : Hex("35D0BA");
-            PrimaryText = lightTheme ? Hex("182230") : Color.white;
-            SecondaryText = lightTheme ? Hex("667085") : Hex("98A2B3");
+            Background = lightTheme ? Hex("EDF8FF") : Hex("0C1523");
+            Panel = lightTheme ? new Color(.975f, .99f, 1f, .91f) : new Color(.09f, .14f, .22f, .94f);
+            Accent = lightTheme ? Hex("27B7D6") : Hex("52D5E7");
+            Yes = lightTheme ? Hex("20BFA9") : Hex("42D9BD");
+            No = lightTheme ? Hex("F46F81") : Hex("FF8294");
+            PrimaryText = lightTheme ? Hex("17334A") : Hex("F4FBFF");
+            SecondaryText = lightTheme ? Hex("648096") : Hex("9CB5C7");
         }
 
         private void PreviewImport(string json)
@@ -1036,6 +1063,8 @@ namespace DecisionDisc
         private static Transform VerticalCard(string name, Transform parent, float height)
         {
             var card = Image(name, parent, Panel); SetHeight(card.rectTransform, height);
+            card.sprite = softRectSprite; card.type = UnityEngine.UI.Image.Type.Sliced;
+            Outline edge = card.gameObject.AddComponent<Outline>(); edge.effectColor = lightTheme ? new Color(.25f, .71f, .85f, .20f) : new Color(.35f, .82f, .9f, .18f); edge.effectDistance = new Vector2(1.5f, -1.5f);
             var layout = card.gameObject.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(24, 24, 14, 14); layout.spacing = 8; layout.childForceExpandHeight = false;
             return card.transform;
         }
@@ -1049,6 +1078,8 @@ namespace DecisionDisc
         private static InputField Input(string placeholder, Transform parent, float height, bool multiline)
         {
             var root = Image("Input", parent, Panel); SetHeight(root.rectTransform, height);
+            root.sprite = softRectSprite; root.type = UnityEngine.UI.Image.Type.Sliced;
+            Outline edge = root.gameObject.AddComponent<Outline>(); edge.effectColor = new Color(Accent.r, Accent.g, Accent.b, .22f); edge.effectDistance = new Vector2(1.5f, -1.5f);
             var field = root.gameObject.AddComponent<InputField>(); field.lineType = multiline ? InputField.LineType.MultiLineNewline : InputField.LineType.SingleLine;
             Text value = Label("", root.transform, 30, TextAnchor.MiddleLeft, PrimaryText); Stretch(value.rectTransform, 24, 10, 24, 10);
             Text hint = Label(placeholder, root.transform, 28, TextAnchor.MiddleLeft, Hex("667085")); Stretch(hint.rectTransform, 24, 10, 24, 10);
@@ -1066,7 +1097,10 @@ namespace DecisionDisc
         private static Button Button(string name, Transform parent, string value, UnityEngine.Events.UnityAction action, Color color, float height)
         {
             var image = Image(name, parent, color); SetHeight(image.rectTransform, height);
+            image.sprite = softRectSprite; image.type = UnityEngine.UI.Image.Type.Sliced;
+            Outline edge = image.gameObject.AddComponent<Outline>(); edge.effectColor = Approximately(color, Panel) ? new Color(Accent.r, Accent.g, Accent.b, .24f) : new Color(1f, 1f, 1f, .28f); edge.effectDistance = new Vector2(1.5f, -1.5f);
             var button = image.gameObject.AddComponent<Button>(); button.targetGraphic = image; button.onClick.AddListener(action);
+            ColorBlock colors = button.colors; colors.normalColor = Color.white; colors.highlightedColor = new Color(1.04f, 1.04f, 1.04f, 1f); colors.pressedColor = new Color(.88f, .94f, .98f, 1f); colors.fadeDuration = .10f; button.colors = colors;
             Text label = Label(value, image.transform, 26, TextAnchor.MiddleCenter, Approximately(color, Panel) ? PrimaryText : Color.white); Stretch(label.rectTransform, 8, 4, 8, 4); return button;
         }
 
@@ -1093,6 +1127,8 @@ namespace DecisionDisc
         private static Transform HorizontalCard(string name, Transform parent, float height)
         {
             Image root = Image(name, parent, Panel); SetHeight(root.rectTransform, height);
+            root.sprite = softRectSprite; root.type = UnityEngine.UI.Image.Type.Sliced;
+            Outline edge = root.gameObject.AddComponent<Outline>(); edge.effectColor = new Color(Accent.r, Accent.g, Accent.b, .20f); edge.effectDistance = new Vector2(1.5f, -1.5f);
             var layout = root.gameObject.AddComponent<HorizontalLayoutGroup>();
             layout.padding = new RectOffset(24, 24, 18, 18); layout.spacing = 16;
             layout.childControlHeight = true; layout.childControlWidth = true; layout.childForceExpandWidth = false; layout.childForceExpandHeight = true;
@@ -1157,6 +1193,27 @@ namespace DecisionDisc
             const int size = 256; var texture = new Texture2D(size, size, TextureFormat.RGBA32, false); Color[] pixels = new Color[size * size]; Vector2 center = Vector2.one * (size - 1) * .5f; float radius = size * .49f;
             for (int y = 0; y < size; y++) for (int x = 0; x < size; x++) { float distance = Vector2.Distance(new Vector2(x, y), center); float alpha = Mathf.Clamp01(radius - distance); pixels[y * size + x] = new Color(1, 1, 1, alpha); }
             texture.SetPixels(pixels); texture.Apply(); return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(.5f, .5f), 100);
+        }
+
+        private static Sprite CreateRoundedRectSprite()
+        {
+            const int size = 64;
+            const float radius = 15f;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false) { name = "Decision Disc Soft Rectangle" };
+            var pixels = new Color[size * size];
+            Vector2 center = new Vector2((size - 1) * .5f, (size - 1) * .5f);
+            Vector2 half = new Vector2(size * .5f - radius, size * .5f - radius);
+            for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                Vector2 q = new Vector2(Mathf.Abs(x - center.x), Mathf.Abs(y - center.y)) - half;
+                float outside = new Vector2(Mathf.Max(q.x, 0f), Mathf.Max(q.y, 0f)).magnitude;
+                float inside = Mathf.Min(Mathf.Max(q.x, q.y), 0f);
+                float signedDistance = outside + inside - radius;
+                pixels[y * size + x] = new Color(1f, 1f, 1f, Mathf.Clamp01(.75f - signedDistance));
+            }
+            texture.SetPixels(pixels); texture.Apply(false, false);
+            return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(.5f, .5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(18, 18, 18, 18));
         }
 
         private static Sprite CreateRingSprite()
