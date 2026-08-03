@@ -922,7 +922,7 @@ namespace DecisionDisc
             Transform container = VerticalContainer("ResultFace", parent, true);
             string path = yesFace ? badge.yesImagePath : badge.noImagePath;
             Sprite loaded = LoadSprite(path);
-            Image image = Image("ResultImage", container, Color.white); image.sprite = loaded ?? DefaultFaceSprite(badge, yesFace); image.preserveAspect = true; SetFlexible(image.rectTransform);
+            CircularFaceImage("ResultImage", container, loaded ?? DefaultFaceSprite(badge, yesFace));
             Text label = Label(yesFace ? "YES" : "NO", container, 30, TextAnchor.MiddleCenter, yesFace ? Yes : No); SetHeight(label.rectTransform, 46);
         }
 
@@ -970,16 +970,32 @@ namespace DecisionDisc
             string path = yesFace ? badge.yesImagePath : badge.noImagePath;
             Sprite sprite = LoadSprite(path);
             Transform container = VerticalContainer(yesFace ? "YesFace" : "NoFace", parent, true);
-            Image preview = Image(yesFace ? "YesPreview" : "NoPreview", container, Color.white);
-            preview.sprite = sprite ?? DefaultFaceSprite(badge, yesFace); preview.preserveAspect = true;
-            SetFlexible(preview.rectTransform);
+            Image preview = CircularFaceImage(yesFace ? "YesPreview" : "NoPreview", container, sprite ?? DefaultFaceSprite(badge, yesFace));
             Text face = Label(yesFace ? "YES" : "NO", container, 34, TextAnchor.MiddleCenter, yesFace ? Yes : No); SetHeight(face.rectTransform, 44);
             if (clickable)
             {
-                Button button = preview.gameObject.AddComponent<Button>();
+                Button button = preview.transform.parent.gameObject.AddComponent<Button>();
                 button.targetGraphic = preview;
                 button.onClick.AddListener(() => PickBadgeImage(badge, yesFace));
             }
+        }
+
+        private Image CircularFaceImage(string name, Transform parent, Sprite sprite)
+        {
+            Image viewport = Image(name + "Mask", parent, Color.white);
+            viewport.sprite = circleSprite;
+            viewport.preserveAspect = true;
+            viewport.raycastTarget = true;
+            SetFlexible(viewport.rectTransform);
+            Mask mask = viewport.gameObject.AddComponent<Mask>();
+            mask.showMaskGraphic = false;
+
+            Image content = Image(name, viewport.transform, Color.white);
+            content.sprite = sprite;
+            content.preserveAspect = true;
+            content.raycastTarget = false;
+            Stretch(content.rectTransform);
+            return content;
         }
 
         private void RefreshLogPreview()
