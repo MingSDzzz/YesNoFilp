@@ -41,8 +41,8 @@ namespace DecisionDisc
         {
             if (!charging) return;
             charging = false;
-            float heldSeconds = Mathf.Max(0f, Time.unscaledTime - downTime);
-            float duration = Mathf.Clamp01(heldSeconds / 2.2f);
+            float heldSeconds = Mathf.Clamp(Time.unscaledTime - downTime, 0f, 3f);
+            float duration = Mathf.Clamp01(heldSeconds / 3f);
             maxPressure = Mathf.Max(maxPressure, ReadPressure(eventData));
             float strength;
             string source;
@@ -65,7 +65,7 @@ namespace DecisionDisc
         private void Update()
         {
             if (!charging) return;
-            SetVisual(Mathf.Clamp01((Time.unscaledTime - downTime) / 5f));
+            SetVisual(Mathf.Clamp01((Time.unscaledTime - downTime) / 3f));
         }
 
         private void SetVisual(float value)

@@ -14,15 +14,9 @@ namespace DecisionDisc
                 return NextUnit() < yesProbability;
             }
 
-            // Strength participates in the entropy, but cannot bias the 50/50 threshold.
-            byte[] entropy = new byte[32 + sizeof(float)];
-            using (var rng = RandomNumberGenerator.Create()) rng.GetBytes(entropy);
-            Array.Copy(BitConverter.GetBytes(strength), 0, entropy, 32, sizeof(float));
-            using (var sha = SHA256.Create())
-            {
-                byte[] hash = sha.ComputeHash(entropy);
-                return (hash[0] & 1) == 0;
-            }
+            // Fair mode is a direct cryptographic 50/50 draw. Strength is deliberately
+            // ignored here so it cannot accidentally introduce a hidden bias.
+            return NextUnit() < 0.5;
         }
 
         public static float EffectiveYesProbability(float strength, DecisionMode mode, float baseYesProbability)

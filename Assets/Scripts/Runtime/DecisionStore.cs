@@ -95,7 +95,7 @@ namespace DecisionDisc
 
         public BadgeDefinition CreateBadge(string name)
         {
-            var badge = new BadgeDefinition { id = Guid.NewGuid().ToString("N"), name = name, builtIn = false, yesProbability = 0.5f, probabilityConfigured = true };
+            var badge = new BadgeDefinition { id = Guid.NewGuid().ToString("N"), name = name, builtIn = false, visualPreset = "stars", yesProbability = 0.5f, probabilityConfigured = true };
             // Put a newly created badge first so it is immediately visible without scrolling.
             Badges.badges.Insert(0, badge);
             Directory.CreateDirectory(Path.Combine(badgeDirectory, badge.id));
@@ -200,9 +200,20 @@ namespace DecisionDisc
         private void EnsureClassicBadge()
         {
             if (Badges.badges.Find(item => item.id == "classic") == null)
-                Badges.badges.Insert(0, new BadgeDefinition { id = "classic", name = "经典 YES / NO", builtIn = true, yesProbability = 0.5f, probabilityConfigured = true });
+                Badges.badges.Insert(0, new BadgeDefinition { id = "classic", name = "星光 YES / NO", builtIn = true, visualPreset = "stars", yesProbability = 0.5f, probabilityConfigured = true });
+            BadgeDefinition classic = Badges.badges.Find(item => item.id == "classic");
+            if (classic != null)
+            {
+                classic.name = "星光 YES / NO";
+                classic.visualPreset = "stars";
+            }
+            if (Badges.badges.Find(item => item.id == "sunmoon") == null)
+                Badges.badges.Add(new BadgeDefinition { id = "sunmoon", name = "日月 YES / NO", builtIn = true, visualPreset = "sunmoon", yesProbability = 0.5f, probabilityConfigured = true });
             foreach (BadgeDefinition badge in Badges.badges)
+            {
+                if (string.IsNullOrEmpty(badge.visualPreset)) badge.visualPreset = "stars";
                 if (!badge.probabilityConfigured) { badge.yesProbability = 0.5f; badge.probabilityConfigured = true; }
+            }
             SaveBadges();
         }
 

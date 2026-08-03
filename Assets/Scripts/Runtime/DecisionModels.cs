@@ -48,6 +48,7 @@ namespace DecisionDisc
         public string yesImagePath;
         public string noImagePath;
         public bool builtIn;
+        public string visualPreset;
         public float yesProbability = 0.5f;
         public bool probabilityConfigured;
     }

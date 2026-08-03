@@ -29,9 +29,9 @@ namespace DecisionDisc.Editor
         {
             PlayerSettings.productName = "YES NO 决策徽章";
             PlayerSettings.companyName = "Personal";
-            PlayerSettings.bundleVersion = "1.3.4";
+            PlayerSettings.bundleVersion = "1.3.5";
             PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.personal.decisiondisc");
-            PlayerSettings.Android.bundleVersionCode = 10;
+            PlayerSettings.Android.bundleVersionCode = 11;
             // Unity 2022.3 Personal requires the Unity splash screen. Keep it static,
             // use the app's light background, and avoid claiming it can be disabled.
             PlayerSettings.SplashScreen.show = true;
@@ -136,9 +136,32 @@ namespace DecisionDisc.Editor
                 throw new Exception("徽章概率端点验证失败：0%/100% 必须保持绝对结果。");
             if (DecisionEngine.EffectiveYesProbability(0.5f, DecisionMode.Fair5050, 1f) != 0.5f)
                 throw new Exception("公平模式验证失败：必须保持 50/50。");
+            AuditRandomness();
             Debug.Log("DECISION_DISC_VALIDATION_OK");
             List<string> missing = MissingAndroidComponents();
             Debug.Log(missing.Count == 0 ? "ANDROID_TOOLCHAIN_OK" : "ANDROID_TOOLCHAIN_MISSING=" + string.Join(",", missing));
+        }
+
+        public static void AuditRandomness()
+        {
+            const int seriesCount = 10000;
+            int yes = 0, allYes = 0, allNo = 0;
+            for (int series = 0; series < seriesCount; series++)
+            {
+                int seriesYes = 0;
+                for (int round = 0; round < 3; round++)
+                {
+                    if (DecisionEngine.Decide(.5f, DecisionMode.Fair5050)) { yes++; seriesYes++; }
+                }
+                if (seriesYes == 3) allYes++;
+                if (seriesYes == 0) allNo++;
+            }
+            float yesRate = yes / (seriesCount * 3f);
+            float allYesRate = allYes / (float)seriesCount;
+            float allNoRate = allNo / (float)seriesCount;
+            Debug.Log("DECISION_DISC_RANDOM_AUDIT tosses=" + (seriesCount * 3) + "; yes=" + (yesRate * 100f).ToString("0.00") + "%; 3:0=" + (allYesRate * 100f).ToString("0.00") + "%; 0:3=" + (allNoRate * 100f).ToString("0.00") + "%");
+            if (yesRate < .47f || yesRate > .53f || allYesRate < .10f || allYesRate > .15f || allNoRate < .10f || allNoRate > .15f)
+                throw new Exception("公平随机大样本审计失败，结果偏离理论分布。");
         }
 
         public static List<string> MissingAndroidComponents()

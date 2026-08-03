@@ -36,6 +36,7 @@ Thumbs.db
 sysinfo.txt
 .signing/
 TestScreenshots/
+TestArtifacts/
 
 # Crash reports
 crashlytics-build.properties
