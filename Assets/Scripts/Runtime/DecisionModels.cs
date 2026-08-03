@@ -18,6 +18,9 @@ namespace DecisionDisc
         public string note;
         public string badgeId;
         public float yesProbabilityUsed;
+        public int seriesLength = 1;
+        public int yesWins;
+        public int noWins;
     }
 
     [Serializable]
@@ -66,5 +69,10 @@ namespace DecisionDisc
         public DateTime TimestampUtc;
         public string BadgeId;
         public float YesProbabilityUsed;
+        public int SeriesLength = 1;
+        public int YesWins;
+        public int NoWins;
+        public string Note;
+        public string SavedRecordId;
     }
 }

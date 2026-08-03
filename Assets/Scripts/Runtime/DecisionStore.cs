@@ -26,17 +26,28 @@ namespace DecisionDisc
             EnsureClassicBadge();
         }
 
-        public void SaveExplicit(PendingDecision pending, string note)
+        public DecisionRecord SaveExplicit(PendingDecision pending, string note)
         {
             if (pending == null) throw new InvalidOperationException("当前没有可保存的投掷结果。");
-            History.records.Insert(0, new DecisionRecord
+            var record = new DecisionRecord
             {
                 id = Guid.NewGuid().ToString("N"), question = pending.Question,
                 result = pending.IsYes ? "YES" : "NO", strength = pending.Strength,
                 strengthSource = pending.StrengthSource, mode = pending.Mode.ToString(),
                 timestampUtc = pending.TimestampUtc.ToString("o"), note = note ?? string.Empty,
-                badgeId = pending.BadgeId, yesProbabilityUsed = pending.YesProbabilityUsed
-            });
+                badgeId = pending.BadgeId, yesProbabilityUsed = pending.YesProbabilityUsed,
+                seriesLength = pending.SeriesLength, yesWins = pending.YesWins, noWins = pending.NoWins
+            };
+            History.records.Insert(0, record);
+            Write(historyPath, History);
+            return record;
+        }
+
+        public void UpdateRecordNote(string id, string note)
+        {
+            DecisionRecord record = History.records.Find(item => item.id == id);
+            if (record == null) return;
+            record.note = note ?? string.Empty;
             Write(historyPath, History);
         }
 
@@ -115,15 +126,35 @@ namespace DecisionDisc
 
         public void SelectBadge(string id) { Badges.selectedBadgeId = id; SaveBadges(); }
 
-        public void CopyBadgeImage(BadgeDefinition badge, bool yesFace, string sourcePath)
+        public void CopyBadgeImage(BadgeDefinition badge, bool yesFace, string sourcePath, float zoom = 1f, float offsetX = 0f, float offsetY = 0f)
         {
             if (badge == null || badge.builtIn || !File.Exists(sourcePath)) return;
-            string extension = Path.GetExtension(sourcePath);
-            if (string.IsNullOrEmpty(extension)) extension = ".img";
             string directory = Path.Combine(badgeDirectory, badge.id);
             Directory.CreateDirectory(directory);
-            string destination = Path.Combine(directory, yesFace ? "yes" + extension : "no" + extension);
-            File.Copy(sourcePath, destination, true); // App-owned copy survives source deletion.
+            string destination = Path.Combine(directory, yesFace ? "yes.png" : "no.png");
+            Texture2D source = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!source.LoadImage(File.ReadAllBytes(sourcePath))) throw new InvalidDataException("无法读取所选图片。");
+            const int outputSize = 512;
+            var output = new Texture2D(outputSize, outputSize, TextureFormat.RGBA32, false);
+            float cropSize = Mathf.Min(source.width, source.height) / Mathf.Clamp(zoom, 1f, 3f);
+            float availableX = Mathf.Max(0f, source.width - cropSize);
+            float availableY = Mathf.Max(0f, source.height - cropSize);
+            float startX = availableX * Mathf.Clamp01((offsetX + 1f) * 0.5f);
+            float startY = availableY * Mathf.Clamp01((offsetY + 1f) * 0.5f);
+            for (int y = 0; y < outputSize; y++)
+            for (int x = 0; x < outputSize; x++)
+            {
+                float nx = (x + 0.5f) / outputSize;
+                float ny = (y + 0.5f) / outputSize;
+                Color pixel = source.GetPixelBilinear((startX + nx * cropSize) / source.width, (startY + ny * cropSize) / source.height);
+                float dx = nx - 0.5f, dy = ny - 0.5f;
+                if (dx * dx + dy * dy > 0.25f) pixel.a = 0f;
+                output.SetPixel(x, y, pixel);
+            }
+            output.Apply();
+            File.WriteAllBytes(destination, output.EncodeToPNG()); // Fixed-size app-owned circular copy.
+            UnityEngine.Object.Destroy(source);
+            UnityEngine.Object.Destroy(output);
             if (yesFace) badge.yesImagePath = destination; else badge.noImagePath = destination;
             SaveBadges();
         }

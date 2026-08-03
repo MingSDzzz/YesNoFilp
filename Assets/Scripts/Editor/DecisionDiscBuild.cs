@@ -29,9 +29,10 @@ namespace DecisionDisc.Editor
         {
             PlayerSettings.productName = "YES NO 决策徽章";
             PlayerSettings.companyName = "Personal";
-            PlayerSettings.bundleVersion = "1.2.2";
+            PlayerSettings.bundleVersion = "1.3.0";
             PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.personal.decisiondisc");
-            PlayerSettings.Android.bundleVersionCode = 5;
+            PlayerSettings.Android.bundleVersionCode = 6;
+            PlayerSettings.SplashScreen.show = false;
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.Portrait;
             PlayerSettings.allowedAutorotateToPortrait = true;
             PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;

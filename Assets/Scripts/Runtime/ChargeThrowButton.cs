@@ -8,7 +8,7 @@ namespace DecisionDisc
     [RequireComponent(typeof(Image))]
     public sealed class ChargeThrowButton : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IDragHandler
     {
-        public Action<float, string> Released;
+        public Action<float, string, float> Released;
         public Text Label;
         public Image Fill;
         private bool charging;
@@ -41,7 +41,8 @@ namespace DecisionDisc
         {
             if (!charging) return;
             charging = false;
-            float duration = Mathf.Clamp01((Time.unscaledTime - downTime) / 2.2f);
+            float heldSeconds = Mathf.Max(0f, Time.unscaledTime - downTime);
+            float duration = Mathf.Clamp01(heldSeconds / 2.2f);
             maxPressure = Mathf.Max(maxPressure, ReadPressure(eventData));
             float strength;
             string source;
@@ -58,13 +59,13 @@ namespace DecisionDisc
                 source = maxRadius > 0.01f ? "hold+area+release" : "hold+release";
             }
             SetVisual(0f);
-            Released?.Invoke(strength, source);
+            Released?.Invoke(strength, source, heldSeconds);
         }
 
         private void Update()
         {
             if (!charging) return;
-            SetVisual(Mathf.Clamp01((Time.unscaledTime - downTime) / 2.2f));
+            SetVisual(Mathf.Clamp01((Time.unscaledTime - downTime) / 5f));
         }
 
         private void SetVisual(float value)
