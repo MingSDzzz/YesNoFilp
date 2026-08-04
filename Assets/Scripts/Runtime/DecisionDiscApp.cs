@@ -183,7 +183,6 @@ namespace DecisionDisc
             homeFaces = Rect("HomeFaces", visualStage); Stretch((RectTransform)homeFaces);
             var homeLayout = homeFaces.gameObject.AddComponent<HorizontalLayoutGroup>(); homeLayout.spacing = 34; homeLayout.padding = new RectOffset(18, 18, 10, 10); homeLayout.childControlHeight = true; homeLayout.childControlWidth = true; homeLayout.childForceExpandWidth = true;
             throwStage = Rect("ThrowStage", visualStage); Stretch((RectTransform)throwStage);
-            var throwLayout = throwStage.gameObject.AddComponent<HorizontalLayoutGroup>(); throwLayout.spacing = 12; throwLayout.padding = new RectOffset(12, 12, 30, 30); throwLayout.childControlHeight = true; throwLayout.childControlWidth = true; throwLayout.childForceExpandWidth = true;
             throwStage.gameObject.SetActive(false);
             RefreshHomeFaces();
 
@@ -290,6 +289,28 @@ namespace DecisionDisc
             if (panel == null) return;
             if (modalBackdrop != null) modalBackdrop.SetActive(true);
             panel.SetActive(true);
+            StartCoroutine(AnimateModalOpen(panel));
+        }
+
+        private IEnumerator AnimateModalOpen(GameObject panel)
+        {
+            CanvasGroup panelGroup = panel.GetComponent<CanvasGroup>() ?? panel.AddComponent<CanvasGroup>();
+            CanvasGroup backdropGroup = modalBackdrop == null ? null : (modalBackdrop.GetComponent<CanvasGroup>() ?? modalBackdrop.AddComponent<CanvasGroup>());
+            panelGroup.alpha = 0f;
+            panel.transform.localScale = Vector3.one * .965f;
+            if (backdropGroup != null) backdropGroup.alpha = 0f;
+            const float duration = .2f;
+            for (float elapsed = 0f; elapsed < duration; elapsed += Time.unscaledDeltaTime)
+            {
+                float p = Mathf.SmoothStep(0f, 1f, elapsed / duration);
+                panelGroup.alpha = p;
+                panel.transform.localScale = Vector3.one * Mathf.Lerp(.965f, 1f, p);
+                if (backdropGroup != null) backdropGroup.alpha = p;
+                yield return null;
+            }
+            panelGroup.alpha = 1f;
+            panel.transform.localScale = Vector3.one;
+            if (backdropGroup != null) backdropGroup.alpha = 1f;
         }
 
         private void CloseModal(GameObject panel)
@@ -458,7 +479,7 @@ namespace DecisionDisc
                 for (int i = 0; i < throwDiscs.Count; i++)
                 {
                     CoinRenderView item = throwDiscs[i];
-                    float stagger = i * .018f;
+                    float stagger = i * .03f;
                     float localP = Mathf.Clamp01((p - stagger) / Mathf.Max(.8f, 1f - stagger));
                     Vector2 travel;
                     float flipDegrees;
@@ -477,7 +498,7 @@ namespace DecisionDisc
                         rollDegrees = -6f * anticipation;
                         uniformScale = 1f - .05f * anticipation;
                     }
-                    else if (localP < .86f)
+                    else if (localP < .68f)
                     {
                         float flight = (localP - .12f) / .74f;
                         // Physically valid ballistic arc: y = 4H*t*(1-t), equivalent
@@ -495,7 +516,9 @@ namespace DecisionDisc
                         {
                             float spinFactor = Mathf.Clamp01(Mathf.Max(holdFactor, value.Strength));
                             float spin = Mathf.Lerp(7f, 32f, spinFactor);
-                            item.BeginPhysicsSpin(new Vector3(spin, Mathf.Lerp(.7f, 2.8f, spinFactor) * direction, Mathf.Lerp(.4f, 1.8f, spinFactor) * direction));
+                            float spinVariation = value.SeriesLength <= 1 ? 1f : .88f + i * .07f;
+                            float spinDirection = i % 2 == 0 ? 1f : -1f;
+                            item.BeginPhysicsSpin(new Vector3(spin * spinVariation * spinDirection, Mathf.Lerp(.7f, 2.8f, spinFactor) * direction, Mathf.Lerp(.4f, 1.8f, spinFactor) * -direction));
                             physicsStarted[i] = true;
                         }
                         applyScriptedPose = false;
@@ -503,11 +526,21 @@ namespace DecisionDisc
                     }
                     else
                     {
-                        float settle = (localP - .86f) / .14f;
+                        // Choose the final face while the disc is still airborne.
+                        // This avoids showing one face on landing and then visibly
+                        // snapping to the pre-drawn result.
+                        float settle = (localP - .68f) / .32f;
                         float damping = 1f - settle;
                         float lane = value.SeriesLength <= 1 ? 1f : i - (value.SeriesLength - 1) * .5f;
-                        float landingX = value.SeriesLength <= 1 ? 95f : 28f * lane;
-                        travel = new Vector2(Mathf.Lerp(landingX, 0f, Mathf.SmoothStep(0f, 1f, settle)), Mathf.Abs(Mathf.Sin(settle * Mathf.PI * 2f)) * 30f * damping);
+                        float correctionStartFlight = (.68f - .12f) / .74f;
+                        float correctionStartX = value.SeriesLength <= 1
+                            ? Mathf.Lerp(-70f, 95f, Mathf.SmoothStep(0f, 1f, correctionStartFlight))
+                            : Mathf.Lerp(-18f * lane, 28f * lane, Mathf.SmoothStep(0f, 1f, correctionStartFlight));
+                        float ballisticPhase = Mathf.Lerp(correctionStartFlight, 1f, Mathf.SmoothStep(0f, 1f, settle));
+                        float multiDiscHeightScale = value.SeriesLength == 1 ? 1f : value.SeriesLength == 3 ? .82f : .68f;
+                        float height = 4f * Mathf.Lerp(190f, 280f, holdFactor) * multiDiscHeightScale * ballisticPhase * (1f - ballisticPhase);
+                        float bounce = settle > .72f ? Mathf.Abs(Mathf.Sin((settle - .72f) / .28f * Mathf.PI)) * 14f * damping : 0f;
+                        travel = new Vector2(Mathf.Lerp(correctionStartX, 0f, Mathf.SmoothStep(0f, 1f, settle)), height + bounce);
                         flipDegrees = tiltDegrees = rollDegrees = 0f;
                         if (!resultCorrectionStarted[i])
                         {
@@ -534,11 +567,11 @@ namespace DecisionDisc
                 throwDiscLabels[i].text = roundYes ? "YES" : "NO";
                 throwDiscLabels[i].color = roundYes ? Yes : No;
             }
-            status.text = (value.IsYes ? "YES" : "NO") + "  ·  " + SeriesScore(value) + "  ·  力度 " + Mathf.RoundToInt(value.Strength * 100) + "%\n尚未保存";
+            status.text = (value.IsYes ? "YES" : "NO") + "  ·  " + SeriesScore(value) + "  ·  YES 概率 " + Mathf.RoundToInt(value.YesProbabilityUsed * 100) + "%\n尚未保存";
             UserActionLog.Add("投掷完成；结果=" + (value.IsYes ? "YES" : "NO"));
             RefreshHistory();
             savePromptNote.text = string.Empty;
-            savePromptTitle.text = (value.IsYes ? "YES" : "NO") + " · " + SeriesScore(value) + "\n是否保存本次结果？";
+            savePromptTitle.text = (value.IsYes ? "YES" : "NO") + " · " + SeriesScore(value) + "\n每枚 YES 概率 " + Mathf.RoundToInt(value.YesProbabilityUsed * 100) + "% · 是否保存？";
             PopulateResultFaces(savePromptFaces, value, animationBadge);
             OpenModal(savePromptPanel);
         }
@@ -892,10 +925,18 @@ namespace DecisionDisc
         {
             Clear(throwStage); throwDiscs.Clear(); throwDiscLabels.Clear(); throwDiscBasePositions.Clear();
             homeFaces.gameObject.SetActive(false); throwStage.gameObject.SetActive(true);
-            float imageSize = count == 1 ? 390f : count == 3 ? 230f : 138f;
+            float imageSize = count == 1 ? 390f : count == 3 ? 270f : 190f;
+            float horizontalStep = count == 3 ? 205f : 158f;
             for (int i = 0; i < count; i++)
             {
                 Transform cell = VerticalContainer("ThrowCell", throwStage, true);
+                RectTransform cellRect = (RectTransform)cell;
+                cellRect.anchorMin = cellRect.anchorMax = new Vector2(.5f, .5f);
+                cellRect.pivot = new Vector2(.5f, .5f);
+                float lane = count <= 1 ? 0f : i - (count - 1) * .5f;
+                float arcY = count <= 1 ? 0f : 28f - Mathf.Abs(lane) * (count == 3 ? 20f : 12f);
+                cellRect.anchoredPosition = new Vector2(lane * horizontalStep, arcY);
+                cellRect.sizeDelta = new Vector2(imageSize, imageSize + 54f);
                 VerticalLayoutGroup cellLayout = cell.GetComponent<VerticalLayoutGroup>();
                 cellLayout.childAlignment = TextAnchor.MiddleCenter; cellLayout.childForceExpandWidth = false;
                 GameObject renderObject = new GameObject("ThrowCoin3D", typeof(RectTransform), typeof(RawImage), typeof(CoinRenderView));
@@ -914,12 +955,21 @@ namespace DecisionDisc
         {
             if (parent == null) return; Clear(parent);
             string results = string.IsNullOrEmpty(decision.RoundResults) ? (decision.IsYes ? "Y" : "N") : decision.RoundResults;
-            for (int i = 0; i < results.Length; i++) AddResultFace(parent, badge, results[i] == 'Y');
+            HorizontalLayoutGroup layout = parent.GetComponent<HorizontalLayoutGroup>();
+            if (layout != null)
+            {
+                layout.childAlignment = TextAnchor.MiddleCenter;
+                layout.childForceExpandWidth = false;
+                layout.spacing = results.Length >= 5 ? 8f : 18f;
+            }
+            float faceWidth = results.Length == 1 ? 220f : results.Length == 3 ? 176f : 104f;
+            for (int i = 0; i < results.Length; i++) AddResultFace(parent, badge, results[i] == 'Y', faceWidth);
         }
 
-        private void AddResultFace(Transform parent, BadgeDefinition badge, bool yesFace)
+        private void AddResultFace(Transform parent, BadgeDefinition badge, bool yesFace, float width)
         {
             Transform container = VerticalContainer("ResultFace", parent, true);
+            SetWidth((RectTransform)container, width);
             string path = yesFace ? badge.yesImagePath : badge.noImagePath;
             Sprite loaded = LoadSprite(path);
             CircularFaceImage("ResultImage", container, loaded ?? DefaultFaceSprite(badge, yesFace));

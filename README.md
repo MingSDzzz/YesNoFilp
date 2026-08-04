@@ -2,9 +2,9 @@
 
 一个隐私优先的 Android YES/NO 决策应用。输入一个问题，按住蓄力并松开，即可投掷双面徽章获得结果。
 
-当前版本：`1.3.8`（`versionCode 14`）
+当前版本：`1.3.9`（`versionCode 15`）
 
-[下载最新 APK](https://github.com/MingSDzzz/YesNoFilp/releases/download/v1.3.8/YesNoFilp-v1.3.8.apk) · [查看版本说明](https://github.com/MingSDzzz/YesNoFilp/releases/tag/v1.3.8)
+[下载最新 APK](https://github.com/MingSDzzz/YesNoFilp/releases/download/v1.3.9/YesNoFilp-v1.3.9.apk) · [查看版本说明](https://github.com/MingSDzzz/YesNoFilp/releases/tag/v1.3.9)
 
 ## 使用演示
 

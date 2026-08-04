@@ -30,9 +30,9 @@ namespace DecisionDisc.Editor
         {
             PlayerSettings.productName = "YES NO 决策徽章";
             PlayerSettings.companyName = "Personal";
-            PlayerSettings.bundleVersion = "1.3.8";
+            PlayerSettings.bundleVersion = "1.3.9";
             PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.personal.decisiondisc");
-            PlayerSettings.Android.bundleVersionCode = 14;
+            PlayerSettings.Android.bundleVersionCode = 15;
             Texture2D appIcon = AssetDatabase.LoadAssetAtPath<Texture2D>(AppIconPath);
             if (appIcon == null) throw new BuildFailedException("Android 启动图标缺失：" + AppIconPath);
             PlayerSettings.SetIconsForTargetGroup(BuildTargetGroup.Android, new[] { appIcon });
@@ -48,6 +48,8 @@ namespace DecisionDisc.Editor
             PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
             PlayerSettings.allowedAutorotateToLandscapeLeft = false;
             PlayerSettings.allowedAutorotateToLandscapeRight = false;
+            PlayerSettings.Android.startInFullscreen = false;
+            PlayerSettings.Android.renderOutsideSafeArea = false;
             PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel26;
             PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevelAuto;
             PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
@@ -140,6 +142,10 @@ namespace DecisionDisc.Editor
                 throw new Exception("徽章概率端点验证失败：0%/100% 必须保持绝对结果。");
             if (DecisionEngine.EffectiveYesProbability(0.5f, DecisionMode.Fair5050, 1f) != 0.5f)
                 throw new Exception("公平模式验证失败：必须保持 50/50。");
+            float weak = DecisionEngine.EffectiveYesProbability(0f, DecisionMode.StrengthInfluences, .5f);
+            float strong = DecisionEngine.EffectiveYesProbability(1f, DecisionMode.StrengthInfluences, .5f);
+            if (weak < .449f || weak > .451f || strong < .549f || strong > .551f)
+                throw new Exception("力度影响超出设计范围：50% 徽章必须保持在 45%–55% 之间。");
             AuditRandomness();
             Debug.Log("DECISION_DISC_VALIDATION_OK");
             List<string> missing = MissingAndroidComponents();
