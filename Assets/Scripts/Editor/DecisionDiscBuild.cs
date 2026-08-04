@@ -30,9 +30,9 @@ namespace DecisionDisc.Editor
         {
             PlayerSettings.productName = "YES NO 决策徽章";
             PlayerSettings.companyName = "Personal";
-            PlayerSettings.bundleVersion = "1.3.9";
+            PlayerSettings.bundleVersion = "1.4.0";
             PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.personal.decisiondisc");
-            PlayerSettings.Android.bundleVersionCode = 15;
+            PlayerSettings.Android.bundleVersionCode = 16;
             Texture2D appIcon = AssetDatabase.LoadAssetAtPath<Texture2D>(AppIconPath);
             if (appIcon == null) throw new BuildFailedException("Android 启动图标缺失：" + AppIconPath);
             PlayerSettings.SetIconsForTargetGroup(BuildTargetGroup.Android, new[] { appIcon });
@@ -144,8 +144,8 @@ namespace DecisionDisc.Editor
                 throw new Exception("公平模式验证失败：必须保持 50/50。");
             float weak = DecisionEngine.EffectiveYesProbability(0f, DecisionMode.StrengthInfluences, .5f);
             float strong = DecisionEngine.EffectiveYesProbability(1f, DecisionMode.StrengthInfluences, .5f);
-            if (weak < .449f || weak > .451f || strong < .549f || strong > .551f)
-                throw new Exception("力度影响超出设计范围：50% 徽章必须保持在 45%–55% 之间。");
+            if (weak != .5f || strong != .5f)
+                throw new Exception("力度不得影响概率：50% 徽章无论力度都必须保持 50%。");
             AuditRandomness();
             Debug.Log("DECISION_DISC_VALIDATION_OK");
             List<string> missing = MissingAndroidComponents();

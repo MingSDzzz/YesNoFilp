@@ -43,6 +43,7 @@ namespace DecisionDisc
         private Transform badgeList;
         private Transform historyList;
         private Text badgeStatus;
+        private Text backgroundStatus;
         private Text logPreview;
         private Text importPreview;
         private GameObject importPanel;
@@ -76,6 +77,7 @@ namespace DecisionDisc
         private HistoryExport pendingImport;
         private BadgeDefinition imageTarget;
         private bool imageTargetIsYes;
+        private bool pickingBackground;
         private PendingDecision pending;
         private DecisionMode mode = DecisionMode.StrengthInfluences;
         private Sprite circleSprite;
@@ -105,8 +107,8 @@ namespace DecisionDisc
             if (font == null) font = Resources.GetBuiltinResource<Font>("Arial.ttf");
             circleSprite = CreateCircleSprite();
             softRectSprite = CreateRoundedRectSprite();
-            defaultYesTexture = Resources.Load<Texture2D>("Theme/default-yes-symbol");
-            defaultNoTexture = Resources.Load<Texture2D>("Theme/default-no-symbol");
+            defaultYesTexture = Resources.Load<Texture2D>("Theme/default-yes-symbol-v3");
+            defaultNoTexture = Resources.Load<Texture2D>("Theme/default-no-symbol-v3");
             throwButtonIconTexture = Resources.Load<Texture2D>("Theme/throw-button-icon");
             store = new DecisionStore();
             files = gameObject.AddComponent<AndroidFileBridge>();
@@ -154,6 +156,19 @@ namespace DecisionDisc
                     Stretch(art.rectTransform);
                     Image veil = Image("ReadabilityVeil", background.transform, new Color(.97f, .99f, 1f, .20f)); Stretch(veil.rectTransform); veil.raycastTarget = false;
                 }
+            }
+            Sprite customBackground = LoadSprite(store.Appearance.backgroundImagePath);
+            if (customBackground != null)
+            {
+                Image customArt = Image("CustomBackground", background.transform, Color.white);
+                customArt.sprite = customBackground;
+                customArt.preserveAspect = true;
+                customArt.color = new Color(1f, 1f, 1f, .62f);
+                customArt.raycastTarget = false;
+                Stretch(customArt.rectTransform);
+                Image customVeil = Image("CustomBackgroundVeil", background.transform, new Color(.95f, .985f, 1f, .26f));
+                customVeil.raycastTarget = false;
+                Stretch(customVeil.rectTransform);
             }
 
             var safe = Rect("Safe Area", background.transform); Stretch(safe); safe.gameObject.AddComponent<SafeAreaFitter>();
@@ -250,6 +265,10 @@ namespace DecisionDisc
             Transform content = ScrollContent("SettingsScroll", page.transform, 0);
             Text appearanceTitle = Label("外观与数据", content, 31, TextAnchor.MiddleLeft, Accent); SetHeight(appearanceTitle.rectTransform, 54);
             Button("Theme", content, lightTheme ? "切换为夜间主题" : "切换为日间主题", ToggleTheme, Panel, 82);
+            backgroundStatus = Label(string.IsNullOrEmpty(store.Appearance.backgroundImagePath) ? "背景：使用应用默认背景" : "背景：正在使用你上传的图片", content, 24, TextAnchor.MiddleLeft, SecondaryText); SetHeight(backgroundStatus.rectTransform, 48);
+            Transform backgroundActions = Horizontal("BackgroundActions", content, 86);
+            Button("UploadBackground", backgroundActions, "上传/更换背景图", PickBackgroundImage, Accent, 82);
+            Button("ResetBackground", backgroundActions, "恢复默认背景", ResetBackgroundImage, Panel, 82);
             var historyActions = Horizontal("HistoryDataActions", content, 86);
             Button("Export", historyActions, "导出历史 JSON", () => { UserActionLog.Add("点击导出历史 JSON"); files.ExportJson(store.CreateExportJson()); }, Panel, 82);
             Button("Import", historyActions, "导入历史 JSON", files.PickJson, Panel, 82);
@@ -259,7 +278,7 @@ namespace DecisionDisc
             Button("ExportLog", content, "导出操作日志", ExportOperationLog, Accent, 88);
             logPreview = Label("暂无操作日志。", content, 21, TextAnchor.UpperLeft, PrimaryText); SetHeight(logPreview.rectTransform, 260);
             CardText(content, "隐私\n投掷结果只在确认弹窗中临时存在；选择不保存会立即删除。只有明确保存或导出才会写入文件。");
-            CardText(content, "概率规则\n每个徽章可设置 0%–100% YES 基础概率。蓄力会围绕该概率调整结果；0% 必定 NO，100% 必定 YES。");
+            CardText(content, "概率规则\n每个徽章可设置 0%–100% YES 概率；0% 必定 NO，100% 必定 YES。蓄力只影响动画，不影响随机结果。");
             CardText(content, "本地存储\n历史记录和徽章图片副本保存在 Application.persistentDataPath。");
             CardText(content, "版本\nYesNoFilp " + Application.version + " · 历史 JSON 格式 v1");
             return page;
@@ -380,7 +399,7 @@ namespace DecisionDisc
             badgeProbabilityInput = Input("0–100", probabilityRow, 76, false); SetWidth(badgeProbabilityInput.GetComponent<RectTransform>(), 112);
             badgeProbabilityInput.contentType = InputField.ContentType.IntegerNumber;
             badgeProbabilityInput.onEndEdit.AddListener(ApplyProbabilityInput);
-            Text explanation = Label("可设置 0%–100%。蓄力会围绕基础概率调整；0% 必定 NO，100% 必定 YES。", badgeDetailPanel.transform, 24, TextAnchor.MiddleCenter, Hex("98A2B3")); SetHeight(explanation.rectTransform, 86);
+            Text explanation = Label("可设置 0%–100%。0% 必定 NO，100% 必定 YES；蓄力仅影响动画表现。", badgeDetailPanel.transform, 24, TextAnchor.MiddleCenter, Hex("98A2B3")); SetHeight(explanation.rectTransform, 86);
             Button("SaveDetail", badgeDetailPanel.transform, "保存徽章设置", SaveBadgeDetail, Accent, 84);
             badgeDetailDeleteButton = Button("DeleteDetail", badgeDetailPanel.transform, "删除此徽章", DeleteDetailBadge, No, 76);
             Button("CloseDetail", badgeDetailPanel.transform, "返回徽章列表", () => CloseModal(badgeDetailPanel), Panel, 76);
@@ -768,10 +787,36 @@ namespace DecisionDisc
 
         private void PickBadgeImage(BadgeDefinition badge, bool yesFace) { imageTarget = badge; imageTargetIsYes = yesFace; badgeStatus.text = "正在为“" + badge.name + "”选择 " + (yesFace ? "YES" : "NO") + " 面图片…"; UserActionLog.Add("选择徽章图片：" + badge.name + " / " + (yesFace ? "YES" : "NO")); files.PickImage(); }
 
+        private void PickBackgroundImage()
+        {
+            pickingBackground = true;
+            imageTarget = null;
+            UserActionLog.Add("选择自定义背景图");
+            files.PickImage();
+        }
+
+        private void ResetBackgroundImage()
+        {
+            if (string.IsNullOrEmpty(store.Appearance.backgroundImagePath)) return;
+            store.ClearBackgroundImage();
+            spriteCache.Clear();
+            UserActionLog.Add("恢复默认背景图");
+            RebuildUiAtSettings();
+        }
+
         private void ApplyPickedImage(string path)
         {
             try
             {
+                if (pickingBackground)
+                {
+                    pickingBackground = false;
+                    store.CopyBackgroundImage(path);
+                    spriteCache.Clear();
+                    UserActionLog.Add("已保存自定义背景图");
+                    RebuildUiAtSettings();
+                    return;
+                }
                 if (imageTarget == null) throw new InvalidOperationException("没有正在编辑的徽章。");
                 cropSourcePath = path;
                 Sprite sprite = LoadSprite(path);
@@ -980,6 +1025,11 @@ namespace DecisionDisc
         {
             lightTheme = !lightTheme;
             UserActionLog.Add("切换主题：" + (lightTheme ? "日间" : "夜间"));
+            RebuildUiAtSettings();
+        }
+
+        private void RebuildUiAtSettings()
+        {
             if (uiRoot != null) { uiRoot.SetActive(false); Destroy(uiRoot); }
             pages.Clear();
             BuildUi(); ShowPage(3);
@@ -1063,7 +1113,9 @@ namespace DecisionDisc
 
         private void OnFilePickerError(string message)
         {
+            if (pickingBackground) pickingBackground = false;
             if (badgeStatus != null) badgeStatus.text = message == "Cancelled" ? "已取消文件选择。" : "文件选择失败：" + message;
+            if (backgroundStatus != null && message != "Cancelled") backgroundStatus.text = "背景图片选择失败：" + message;
             RefreshLogPreview();
         }
 

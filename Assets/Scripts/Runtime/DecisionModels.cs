@@ -61,6 +61,13 @@ namespace DecisionDisc
         public List<BadgeDefinition> badges = new List<BadgeDefinition>();
     }
 
+    [Serializable]
+    public sealed class AppearanceFile
+    {
+        public int version = 1;
+        public string backgroundImagePath;
+    }
+
     public sealed class PendingDecision
     {
         public string Question;

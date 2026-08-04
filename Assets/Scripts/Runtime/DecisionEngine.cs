@@ -24,13 +24,9 @@ namespace DecisionDisc
             if (mode == DecisionMode.Fair5050) return 0.5f;
             float baseline = UnityEngine.Mathf.Clamp01(baseYesProbability);
             if (baseline <= 0f || baseline >= 1f) return baseline;
-            float force = UnityEngine.Mathf.Clamp01(strength);
-            // Strength is a small nudge, not a hidden replacement for the badge's
-            // configured probability. At a 50% baseline it can move YES only from
-            // 45% to 55%; the taper keeps 0% and 100% absolute.
-            float centeredBias = UnityEngine.Mathf.Lerp(-0.05f, 0.05f, force);
-            float endpointTaper = 4f * baseline * (1f - baseline);
-            return UnityEngine.Mathf.Clamp01(baseline + centeredBias * endpointTaper);
+            // Press strength belongs to presentation only: height, duration and
+            // rotation speed. It must never alter the random source or probability.
+            return baseline;
         }
 
         private static double NextUnit()

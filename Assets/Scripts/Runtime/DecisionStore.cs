@@ -11,18 +11,25 @@ namespace DecisionDisc
         private readonly string historyPath;
         private readonly string badgePath;
         private readonly string badgeDirectory;
+        private readonly string appearancePath;
+        private readonly string appearanceDirectory;
 
         public HistoryFile History { get; private set; }
         public BadgeFile Badges { get; private set; }
+        public AppearanceFile Appearance { get; private set; }
 
         public DecisionStore()
         {
             historyPath = Path.Combine(Application.persistentDataPath, "history-v1.json");
             badgePath = Path.Combine(Application.persistentDataPath, "badges-v1.json");
             badgeDirectory = Path.Combine(Application.persistentDataPath, "Badges");
+            appearancePath = Path.Combine(Application.persistentDataPath, "appearance-v1.json");
+            appearanceDirectory = Path.Combine(Application.persistentDataPath, "Appearance");
             Directory.CreateDirectory(badgeDirectory);
+            Directory.CreateDirectory(appearanceDirectory);
             History = Load<HistoryFile>(historyPath) ?? new HistoryFile();
             Badges = Load<BadgeFile>(badgePath) ?? new BadgeFile();
+            Appearance = Load<AppearanceFile>(appearancePath) ?? new AppearanceFile();
             EnsureClassicBadge();
         }
 
@@ -192,6 +199,33 @@ namespace DecisionDisc
             SaveBadges();
         }
 
+        public void CopyBackgroundImage(string sourcePath)
+        {
+            if (string.IsNullOrEmpty(sourcePath) || !File.Exists(sourcePath))
+                throw new FileNotFoundException("无法读取所选背景图片。", sourcePath);
+            // Decode first so a picker URI or an unsupported file cannot become the
+            // app's remembered background. Store an app-owned PNG copy afterwards.
+            Texture2D source = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!source.LoadImage(File.ReadAllBytes(sourcePath)))
+            {
+                UnityEngine.Object.Destroy(source);
+                throw new InvalidDataException("无法读取所选背景图片。");
+            }
+            string destination = Path.Combine(appearanceDirectory, "background.png");
+            File.WriteAllBytes(destination, source.EncodeToPNG());
+            UnityEngine.Object.Destroy(source);
+            Appearance.backgroundImagePath = destination;
+            SaveAppearance();
+        }
+
+        public void ClearBackgroundImage()
+        {
+            string path = Appearance.backgroundImagePath;
+            Appearance.backgroundImagePath = string.Empty;
+            SaveAppearance();
+            if (!string.IsNullOrEmpty(path) && File.Exists(path)) File.Delete(path);
+        }
+
         public BadgeDefinition SelectedBadge()
         {
             return Badges.badges.Find(item => item.id == Badges.selectedBadgeId) ?? Badges.badges[0];
@@ -218,6 +252,7 @@ namespace DecisionDisc
         }
 
         private void SaveBadges() { Write(badgePath, Badges); }
+        private void SaveAppearance() { Write(appearancePath, Appearance); }
 
         private static T Load<T>(string path) where T : class
         {
