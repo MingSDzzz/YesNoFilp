@@ -15,7 +15,11 @@ namespace DecisionDisc
         private Material frontMaterial;
         private Material backMaterial;
         private Material edgeMaterial;
-        private Quaternion correctionStart;
+        private Vector3 plannedAngularVelocity;
+        private Vector3 correctionStartEuler;
+        private Vector3 correctionStartVelocityDegrees;
+        private float correctionTargetFlip;
+        private float correctionDuration;
 
         public RectTransform RectTransform => (RectTransform)transform;
 
@@ -57,7 +61,10 @@ namespace DecisionDisc
             body.interpolation = RigidbodyInterpolation.Interpolate;
             body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
             body.constraints = RigidbodyConstraints.FreezePosition;
-            body.maxAngularVelocity = 45f;
+            // Ten visible flips can require a higher short-burst angular velocity on
+            // a light tap with high pressure.  This is still bounded and only used
+            // while the disc is airborne.
+            body.maxAngularVelocity = 120f;
             body.angularDrag = .18f;
 
             Shader coinShader = Resources.Load<Shader>("DecisionDiscCoin");
@@ -66,6 +73,13 @@ namespace DecisionDisc
             frontMaterial = new Material(coinShader) { name = "Coin YES Face", mainTexture = yesTexture };
             backMaterial = new Material(coinShader) { name = "Coin NO Face", mainTexture = noTexture };
             edgeMaterial = new Material(coinShader) { name = "Coin Edge", mainTexture = Texture2D.whiteTexture, color = edgeColor };
+            // Match the static uGUI face (which has a white circular backing)
+            // when the badge enters the 3D rotation.  Without this, transparent
+            // pixels in a user PNG reveal the page/background as soon as the
+            // coin starts moving.
+            frontMaterial.SetFloat("_WhiteBacking", 1f);
+            backMaterial.SetFloat("_WhiteBacking", 1f);
+            edgeMaterial.SetFloat("_WhiteBacking", 0f);
             renderer.sharedMaterials = new[] { frontMaterial, backMaterial, edgeMaterial };
 
             GameObject cameraObject = new GameObject("Coin Camera");
@@ -108,24 +122,55 @@ namespace DecisionDisc
         {
             if (body == null) return;
             body.isKinematic = false;
-            body.angularVelocity = angularVelocity;
+            plannedAngularVelocity = angularVelocity;
+            body.angularVelocity = Vector3.zero;
         }
 
-        public void BeginResultCorrection()
+        public void SetPhysicsSpinMultiplier(float multiplier)
         {
+            if (body == null || body.isKinematic) return;
+            body.angularVelocity = plannedAngularVelocity * Mathf.Clamp01(multiplier);
+        }
+
+        public void BeginResultCorrection(bool yes, float duration)
+        {
+            correctionStartEuler = coin == null ? Vector3.zero : coin.transform.localEulerAngles;
+            correctionDuration = Mathf.Max(.01f, duration);
+            Vector3 worldAngularVelocity = body == null ? Vector3.zero : body.angularVelocity;
+            correctionStartVelocityDegrees = worldAngularVelocity * Mathf.Rad2Deg;
+
+            float faceAngle = yes ? 0f : 180f;
+            float predictedStop = correctionStartEuler.x + correctionStartVelocityDegrees.x * correctionDuration * .5f;
+            correctionTargetFlip = faceAngle + Mathf.Round((predictedStop - faceAngle) / 360f) * 360f;
+            if (correctionStartVelocityDegrees.x > 1f && correctionTargetFlip < correctionStartEuler.x + 45f)
+                correctionTargetFlip += 360f;
+            else if (correctionStartVelocityDegrees.x < -1f && correctionTargetFlip > correctionStartEuler.x - 45f)
+                correctionTargetFlip -= 360f;
+
             if (body != null)
             {
                 body.angularVelocity = Vector3.zero;
                 body.isKinematic = true;
             }
-            correctionStart = coin == null ? Quaternion.identity : coin.transform.localRotation;
+            plannedAngularVelocity = Vector3.zero;
         }
 
-        public void CorrectToResult(bool yes, float progress)
+        public void CorrectToResult(float progress)
         {
             if (coin == null) return;
-            Quaternion target = Quaternion.Euler(yes ? 0f : 180f, 0f, 0f);
-            ApplyKinematicRotation(Quaternion.Slerp(correctionStart, target, Mathf.SmoothStep(0f, 1f, progress)));
+            float t = Mathf.Clamp01(progress);
+            float t2 = t * t;
+            float t3 = t2 * t;
+            float h00 = 2f * t3 - 3f * t2 + 1f;
+            float h10 = t3 - 2f * t2 + t;
+            float h01 = -2f * t3 + 3f * t2;
+            float flip = h00 * correctionStartEuler.x
+                + h10 * correctionStartVelocityDegrees.x * correctionDuration
+                + h01 * correctionTargetFlip;
+            float level = Mathf.SmoothStep(0f, 1f, t);
+            float yaw = Mathf.LerpAngle(correctionStartEuler.y, 0f, level);
+            float roll = Mathf.LerpAngle(correctionStartEuler.z, 0f, level);
+            ApplyKinematicRotation(Quaternion.Euler(flip, yaw, roll));
         }
 
         private void ApplyKinematicRotation(Quaternion localRotation)

@@ -28,9 +28,9 @@ namespace DecisionDisc.Editor
         [MenuItem("Tools/Decision Disc/Setup Android")]
         public static void SetupAndroid()
         {
-            PlayerSettings.productName = "YES NO 决策徽章";
+            PlayerSettings.productName = "决策勋章";
             PlayerSettings.companyName = "Personal";
-            PlayerSettings.bundleVersion = "1.4.0";
+            PlayerSettings.bundleVersion = "1.4.5";
             PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.personal.decisiondisc");
             PlayerSettings.Android.bundleVersionCode = 16;
             Texture2D appIcon = AssetDatabase.LoadAssetAtPath<Texture2D>(AppIconPath);

@@ -66,6 +66,12 @@ namespace DecisionDisc
     {
         public int version = 1;
         public string backgroundImagePath;
+        public float backgroundOpacity = 0.62f;
+        public bool backgroundOpacityConfigured;
+        public float uiPanelOpacity = 0.88f;
+        public bool uiPanelOpacityConfigured;
+        public string buttonTextColor = "#283C59";
+        public bool buttonTextColorConfigured;
     }
 
     public sealed class PendingDecision
