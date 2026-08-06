@@ -195,10 +195,18 @@ namespace DecisionDisc
                 float opacity = Mathf.Clamp01(store.Appearance.backgroundOpacity);
                 customBackgroundImage = Image("CustomBackground", background.transform, Color.white);
                 customBackgroundImage.sprite = customBackground;
-                customBackgroundImage.preserveAspect = true;
+                // The saved crop is portrait (720x1280), while Android devices
+                // commonly have a taller viewport once the status/navigation
+                // areas are included.  Preserve the artwork ratio but envelope
+                // the viewport so no strip of the default theme can show above
+                // or below the user's background.
+                customBackgroundImage.preserveAspect = false;
                 customBackgroundImage.color = new Color(1f, 1f, 1f, opacity);
                 customBackgroundImage.raycastTarget = false;
                 Stretch(customBackgroundImage.rectTransform);
+                AspectRatioFitter backgroundCover = customBackgroundImage.gameObject.AddComponent<AspectRatioFitter>();
+                backgroundCover.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
+                backgroundCover.aspectRatio = Mathf.Max(.01f, customBackground.texture.width / (float)Mathf.Max(1, customBackground.texture.height));
                 customBackgroundVeil = Image("CustomBackgroundVeil", background.transform, new Color(.95f, .985f, 1f, .08f * opacity));
                 customBackgroundVeil.raycastTarget = false;
                 Stretch(customBackgroundVeil.rectTransform);
