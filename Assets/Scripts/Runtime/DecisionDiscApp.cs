@@ -664,7 +664,7 @@ namespace DecisionDisc
                             float turns = Mathf.Lerp(3f, 10f, spinFactor * spinFactor);
                             float spin = turns * Mathf.PI * 2f / rotationalSeconds;
                             float spinDirection = value.SeriesLength <= 1 || i % 2 == 0 ? 1f : -1f;
-                            item.BeginPhysicsSpin(new Vector3(spin * spinDirection, Mathf.Lerp(.12f, .72f, spinFactor) * spinDirection, -Mathf.Lerp(.08f, .42f, spinFactor) * spinDirection));
+                            item.BeginPhysicsSpin(new Vector3(spin * spinDirection, Mathf.Lerp(.12f, .72f, spinFactor) * spinDirection, -Mathf.Lerp(.08f, .42f, spinFactor) * spinDirection), turns);
                             physicsStarted[i] = true;
                         }
                         float normalizedFlight = Mathf.Clamp01(flight / ((.68f - .12f) / .74f));

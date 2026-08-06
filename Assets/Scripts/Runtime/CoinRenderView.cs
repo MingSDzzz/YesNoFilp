@@ -18,8 +18,16 @@ namespace DecisionDisc
         private Vector3 plannedAngularVelocity;
         private Vector3 correctionStartEuler;
         private Vector3 correctionStartVelocityDegrees;
+        // Unity exposes Rigidbody rotations as wrapped Euler angles.  Keep an
+        // unwrapped estimate for each throw so multi-disc stagger/correction
+        // cannot erase completed revolutions at the landing phase.
+        private float correctionStartFlipUnwrapped;
         private float correctionTargetFlip;
         private float correctionDuration;
+        private float spinStartFlipUnwrapped;
+        private float spinAccumulatedDegrees;
+        private float plannedSpinTurns;
+        private float plannedSpinDirection;
 
         public RectTransform RectTransform => (RectTransform)transform;
 
@@ -118,18 +126,23 @@ namespace DecisionDisc
             ApplyKinematicRotation(Quaternion.Euler(flipDegrees, yawDegrees, rollDegrees));
         }
 
-        public void BeginPhysicsSpin(Vector3 angularVelocity)
+        public void BeginPhysicsSpin(Vector3 angularVelocity, float turns = 0f)
         {
             if (body == null) return;
             body.isKinematic = false;
             plannedAngularVelocity = angularVelocity;
             body.angularVelocity = Vector3.zero;
+            spinStartFlipUnwrapped = SignedDegrees(coin == null ? 0f : coin.transform.localEulerAngles.x);
+            spinAccumulatedDegrees = 0f;
+            plannedSpinTurns = Mathf.Max(0f, turns);
+            plannedSpinDirection = Mathf.Sign(angularVelocity.x);
         }
 
         public void SetPhysicsSpinMultiplier(float multiplier)
         {
             if (body == null || body.isKinematic) return;
             body.angularVelocity = plannedAngularVelocity * Mathf.Clamp01(multiplier);
+            spinAccumulatedDegrees += body.angularVelocity.x * Mathf.Rad2Deg * Time.unscaledDeltaTime;
         }
 
         public void BeginResultCorrection(bool yes, float duration)
@@ -140,12 +153,38 @@ namespace DecisionDisc
             correctionStartVelocityDegrees = worldAngularVelocity * Mathf.Rad2Deg;
 
             float faceAngle = yes ? 0f : 180f;
-            float predictedStop = correctionStartEuler.x + correctionStartVelocityDegrees.x * correctionDuration * .5f;
+            float wrappedStart = correctionStartEuler.x;
+            float estimatedStart = spinStartFlipUnwrapped + spinAccumulatedDegrees;
+            correctionStartFlipUnwrapped = wrappedStart + 360f * Mathf.Round((estimatedStart - wrappedStart) / 360f);
+            float predictedStop = correctionStartFlipUnwrapped + correctionStartVelocityDegrees.x * correctionDuration * .5f;
             correctionTargetFlip = faceAngle + Mathf.Round((predictedStop - faceAngle) / 360f) * 360f;
-            if (correctionStartVelocityDegrees.x > 1f && correctionTargetFlip < correctionStartEuler.x + 45f)
+            if (correctionStartVelocityDegrees.x > 1f && correctionTargetFlip < correctionStartFlipUnwrapped + 45f)
                 correctionTargetFlip += 360f;
-            else if (correctionStartVelocityDegrees.x < -1f && correctionTargetFlip > correctionStartEuler.x - 45f)
+            else if (correctionStartVelocityDegrees.x < -1f && correctionTargetFlip > correctionStartFlipUnwrapped - 45f)
                 correctionTargetFlip -= 360f;
+
+            if (plannedSpinTurns > .01f && Mathf.Abs(plannedSpinDirection) > .01f)
+            {
+                float direction = plannedSpinDirection;
+                float minimumFlip = spinStartFlipUnwrapped + direction * plannedSpinTurns * 360f;
+                // Use the planned turn budget as the landing target instead of
+                // extrapolating the current Rigidbody velocity.  The latter can
+                // add one or two accidental extra revolutions, especially when
+                // several discs are being corrected on staggered frames.
+                float baseFlip = direction > 0f ? Mathf.Max(minimumFlip, correctionStartFlipUnwrapped) : Mathf.Min(minimumFlip, correctionStartFlipUnwrapped);
+                if (direction > 0f)
+                {
+                    correctionTargetFlip = faceAngle + Mathf.Ceil((baseFlip - faceAngle) / 360f) * 360f;
+                    while (correctionTargetFlip < baseFlip) correctionTargetFlip += 360f;
+                    while (correctionTargetFlip < correctionStartFlipUnwrapped) correctionTargetFlip += 360f;
+                }
+                else
+                {
+                    correctionTargetFlip = faceAngle + Mathf.Floor((baseFlip - faceAngle) / 360f) * 360f;
+                    while (correctionTargetFlip > baseFlip) correctionTargetFlip -= 360f;
+                    while (correctionTargetFlip > correctionStartFlipUnwrapped) correctionTargetFlip -= 360f;
+                }
+            }
 
             if (body != null)
             {
@@ -164,7 +203,7 @@ namespace DecisionDisc
             float h00 = 2f * t3 - 3f * t2 + 1f;
             float h10 = t3 - 2f * t2 + t;
             float h01 = -2f * t3 + 3f * t2;
-            float flip = h00 * correctionStartEuler.x
+            float flip = h00 * correctionStartFlipUnwrapped
                 + h10 * correctionStartVelocityDegrees.x * correctionDuration
                 + h01 * correctionTargetFlip;
             float level = Mathf.SmoothStep(0f, 1f, t);
@@ -186,6 +225,13 @@ namespace DecisionDisc
                 body.rotation = coin.transform.rotation;
                 body.Sleep();
             }
+        }
+
+        private static float SignedDegrees(float degrees)
+        {
+            degrees %= 360f;
+            if (degrees > 180f) degrees -= 360f;
+            return degrees;
         }
 
         private static Mesh CreateCoinMesh(int segments, float radius, float thickness)
