@@ -30,6 +30,26 @@ namespace DecisionDisc
             History = Load<HistoryFile>(historyPath) ?? new HistoryFile();
             Badges = Load<BadgeFile>(badgePath) ?? new BadgeFile();
             Appearance = Load<AppearanceFile>(appearancePath) ?? new AppearanceFile();
+            bool appearanceChanged = false;
+            if (!Appearance.backgroundOpacityConfigured)
+            {
+                Appearance.backgroundOpacity = 0.62f;
+                Appearance.backgroundOpacityConfigured = true;
+                appearanceChanged = true;
+            }
+            if (!Appearance.uiPanelOpacityConfigured)
+            {
+                Appearance.uiPanelOpacity = 0.88f;
+                Appearance.uiPanelOpacityConfigured = true;
+                appearanceChanged = true;
+            }
+            if (!Appearance.buttonTextColorConfigured || string.IsNullOrEmpty(Appearance.buttonTextColor))
+            {
+                Appearance.buttonTextColor = "#283C59";
+                Appearance.buttonTextColorConfigured = true;
+                appearanceChanged = true;
+            }
+            if (appearanceChanged) SaveAppearance();
             EnsureClassicBadge();
         }
 
@@ -218,12 +238,85 @@ namespace DecisionDisc
             SaveAppearance();
         }
 
+        public void CopyBackgroundImageCropped(string sourcePath, float zoom, float offsetX, float offsetY)
+        {
+            if (string.IsNullOrEmpty(sourcePath) || !File.Exists(sourcePath))
+                throw new FileNotFoundException("无法读取所选背景图片。", sourcePath);
+            Texture2D source = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!source.LoadImage(File.ReadAllBytes(sourcePath)))
+            {
+                UnityEngine.Object.Destroy(source);
+                throw new InvalidDataException("无法读取所选背景图片。");
+            }
+
+            const int outputWidth = 720;
+            const int outputHeight = 1280;
+            const float targetAspect = outputWidth / (float)outputHeight;
+            float sourceAspect = source.width / (float)Mathf.Max(1, source.height);
+            float cropWidth;
+            float cropHeight;
+            if (sourceAspect >= targetAspect)
+            {
+                cropHeight = source.height;
+                cropWidth = cropHeight * targetAspect;
+            }
+            else
+            {
+                cropWidth = source.width;
+                cropHeight = cropWidth / targetAspect;
+            }
+            float safeZoom = Mathf.Clamp(zoom, 1f, 4f);
+            cropWidth /= safeZoom;
+            cropHeight /= safeZoom;
+            float availableX = Mathf.Max(0f, source.width - cropWidth);
+            float availableY = Mathf.Max(0f, source.height - cropHeight);
+            float startX = availableX * Mathf.Clamp01((offsetX + 1f) * .5f);
+            float startY = availableY * Mathf.Clamp01((offsetY + 1f) * .5f);
+
+            var output = new Texture2D(outputWidth, outputHeight, TextureFormat.RGB24, false);
+            for (int y = 0; y < outputHeight; y++)
+            for (int x = 0; x < outputWidth; x++)
+            {
+                float nx = (x + .5f) / outputWidth;
+                float ny = (y + .5f) / outputHeight;
+                output.SetPixel(x, y, source.GetPixelBilinear((startX + nx * cropWidth) / source.width, (startY + ny * cropHeight) / source.height));
+            }
+            output.Apply();
+            string destination = Path.Combine(appearanceDirectory, "background.png");
+            File.WriteAllBytes(destination, output.EncodeToPNG());
+            UnityEngine.Object.Destroy(source);
+            UnityEngine.Object.Destroy(output);
+            Appearance.backgroundImagePath = destination;
+            SaveAppearance();
+        }
+
         public void ClearBackgroundImage()
         {
             string path = Appearance.backgroundImagePath;
             Appearance.backgroundImagePath = string.Empty;
             SaveAppearance();
             if (!string.IsNullOrEmpty(path) && File.Exists(path)) File.Delete(path);
+        }
+
+        public void SetBackgroundOpacity(float opacity)
+        {
+            Appearance.backgroundOpacity = Mathf.Clamp01(opacity);
+            Appearance.backgroundOpacityConfigured = true;
+            SaveAppearance();
+        }
+
+        public void SetUiPanelOpacity(float opacity)
+        {
+            Appearance.uiPanelOpacity = Mathf.Clamp01(opacity);
+            Appearance.uiPanelOpacityConfigured = true;
+            SaveAppearance();
+        }
+
+        public void SetButtonTextColor(string color)
+        {
+            Appearance.buttonTextColor = color ?? "#283C59";
+            Appearance.buttonTextColorConfigured = true;
+            SaveAppearance();
         }
 
         public BadgeDefinition SelectedBadge()

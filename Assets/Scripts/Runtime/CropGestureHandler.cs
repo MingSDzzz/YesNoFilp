@@ -17,9 +17,11 @@ namespace DecisionDisc
         {
             Target = target; Viewport = viewport; Zoom = 1f; NormalizedOffset = Vector2.zero;
             Canvas canvas = GetComponentInParent<Canvas>(); canvasScale = canvas == null ? 1f : Mathf.Max(.01f, canvas.scaleFactor);
-            float side = Mathf.Max(1f, viewport.rect.width);
-            float aspect = textureWidth / (float)Mathf.Max(1, textureHeight);
-            baseSize = aspect >= 1f ? new Vector2(side * aspect, side) : new Vector2(side, side / aspect);
+            Vector2 viewportSize = viewport.rect.size;
+            viewportSize.x = Mathf.Max(1f, viewportSize.x);
+            viewportSize.y = Mathf.Max(1f, viewportSize.y);
+            float coverScale = Mathf.Max(viewportSize.x / Mathf.Max(1, textureWidth), viewportSize.y / Mathf.Max(1, textureHeight));
+            baseSize = new Vector2(textureWidth * coverScale, textureHeight * coverScale);
             Target.sizeDelta = baseSize; Target.anchoredPosition = Vector2.zero; Target.localScale = Vector3.one;
             lastPinchDistance = 0f;
         }
@@ -51,9 +53,9 @@ namespace DecisionDisc
 
         private void ClampAndUpdate()
         {
-            float side = Mathf.Max(1f, Viewport.rect.width);
+            Vector2 viewportSize = Viewport.rect.size;
             Vector2 scaled = baseSize * Zoom;
-            Vector2 maxPan = new Vector2(Mathf.Max(0f, (scaled.x - side) * .5f), Mathf.Max(0f, (scaled.y - side) * .5f));
+            Vector2 maxPan = new Vector2(Mathf.Max(0f, (scaled.x - viewportSize.x) * .5f), Mathf.Max(0f, (scaled.y - viewportSize.y) * .5f));
             Vector2 position = Target.anchoredPosition;
             position.x = Mathf.Clamp(position.x, -maxPan.x, maxPan.x);
             position.y = Mathf.Clamp(position.y, -maxPan.y, maxPan.y);

@@ -28,11 +28,11 @@ namespace DecisionDisc.Editor
         [MenuItem("Tools/Decision Disc/Setup Android")]
         public static void SetupAndroid()
         {
-            PlayerSettings.productName = "YES NO 决策徽章";
+            PlayerSettings.productName = "决策勋章";
             PlayerSettings.companyName = "Personal";
-            PlayerSettings.bundleVersion = "1.4.0";
+            PlayerSettings.bundleVersion = "1.4.8";
             PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.personal.decisiondisc");
-            PlayerSettings.Android.bundleVersionCode = 16;
+            PlayerSettings.Android.bundleVersionCode = 19;
             Texture2D appIcon = AssetDatabase.LoadAssetAtPath<Texture2D>(AppIconPath);
             if (appIcon == null) throw new BuildFailedException("Android 启动图标缺失：" + AppIconPath);
             PlayerSettings.SetIconsForTargetGroup(BuildTargetGroup.Android, new[] { appIcon });

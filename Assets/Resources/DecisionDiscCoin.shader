@@ -4,6 +4,10 @@ Shader "DecisionDisc/Coin"
     {
         _MainTex ("Texture", 2D) = "white" {}
         _Color ("Tint", Color) = (1,1,1,1)
+        // Uploaded badge PNGs may contain transparent pixels.  The 2D UI adds
+        // a white circular backing; keep the same backing on the 3D coin faces
+        // while they rotate so the artwork never becomes a floating cut-out.
+        _WhiteBacking ("White backing", Float) = 0
     }
     SubShader
     {
@@ -36,6 +40,7 @@ Shader "DecisionDisc/Coin"
             sampler2D _MainTex;
             float4 _MainTex_ST;
             fixed4 _Color;
+            float _WhiteBacking;
 
             v2f vert(appdata input)
             {
@@ -49,6 +54,11 @@ Shader "DecisionDisc/Coin"
             fixed4 frag(v2f input) : SV_Target
             {
                 fixed4 color = tex2D(_MainTex, input.uv) * _Color;
+                if (_WhiteBacking > 0.5)
+                {
+                    color.rgb = lerp(fixed3(1, 1, 1), color.rgb, color.a);
+                    color.a = 1;
+                }
                 float3 lightDirection = normalize(float3(-0.35, 0.55, -0.75));
                 float lightAmount = lerp(0.68, 1.12, saturate(dot(normalize(input.normal), lightDirection) * 0.5 + 0.5));
                 color.rgb *= lightAmount;

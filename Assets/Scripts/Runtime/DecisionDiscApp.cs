@@ -17,13 +17,20 @@ namespace DecisionDisc
             public DateTime time;
             public string BadgeId { get { return session != null ? session.BadgeId : record.badgeId; } }
         }
-        private static Color Background = Hex("F4F7FB");
+        private sealed class UiPanelOpacityEntry
+        {
+            public Image image;
+            public Color baseColor;
+        }
+        private static Color Background = Hex("F4FAFF");
         private static Color Panel = Hex("FFFFFF");
-        private static Color Accent = Hex("16A394");
-        private static Color Yes = Hex("16A34A");
-        private static Color No = Hex("E11D48");
-        private static Color PrimaryText = Hex("182230");
-        private static Color SecondaryText = Hex("667085");
+        private static Color Accent = Hex("4FB7E8");
+        private static Color Yes = Hex("43C9B8");
+        private static Color No = Hex("F07F9B");
+        private static Color PrimaryText = Hex("283C59");
+        private static Color SecondaryText = Hex("71849C");
+        private static Color ButtonTextColor = Hex("283C59");
+        private static Color SurfaceShadow = new Color(.18f, .42f, .62f, .14f);
         private static Font font;
         private static Sprite softRectSprite;
 
@@ -32,6 +39,7 @@ namespace DecisionDisc
         private readonly List<GameObject> pages = new List<GameObject>();
         private InputField questionInput;
         private Transform homeFaces;
+        private BadgeCollisionMotion homeCollisionMotion;
         private Transform throwStage;
         private readonly List<CoinRenderView> throwDiscs = new List<CoinRenderView>();
         private readonly List<Text> throwDiscLabels = new List<Text>();
@@ -44,6 +52,16 @@ namespace DecisionDisc
         private Transform historyList;
         private Text badgeStatus;
         private Text backgroundStatus;
+        private Text backgroundOpacityText;
+        private Slider backgroundOpacitySlider;
+        private Text uiPanelOpacityText;
+        private Slider uiPanelOpacitySlider;
+        private Text buttonTextColorStatus;
+        private InputField buttonTextColorInput;
+        private RawImage themeBackgroundImage;
+        private Image themeBackgroundVeil;
+        private Image customBackgroundImage;
+        private Image customBackgroundVeil;
         private Text logPreview;
         private Text importPreview;
         private GameObject importPanel;
@@ -64,6 +82,10 @@ namespace DecisionDisc
         private GameObject seriesPanel;
         private GameObject modalBackdrop;
         private GameObject cropPanel;
+        private Text cropTitle;
+        private Text cropHint;
+        private Image cropViewport;
+        private Image cropRing;
         private Image cropPreview;
         private CropGestureHandler cropGesture;
         private string cropSourcePath;
@@ -78,6 +100,7 @@ namespace DecisionDisc
         private BadgeDefinition imageTarget;
         private bool imageTargetIsYes;
         private bool pickingBackground;
+        private bool croppingBackground;
         private PendingDecision pending;
         private DecisionMode mode = DecisionMode.StrengthInfluences;
         private Sprite circleSprite;
@@ -85,10 +108,12 @@ namespace DecisionDisc
         private Texture2D defaultNoTexture;
         private Sprite defaultYesSprite;
         private Sprite defaultNoSprite;
-        private Texture2D throwButtonIconTexture;
-        private Sprite throwButtonIconSprite;
         private readonly Dictionary<string, Sprite> spriteCache = new Dictionary<string, Sprite>();
         private readonly List<PendingDecision> sessionDecisions = new List<PendingDecision>();
+        private readonly List<Button> navigationButtons = new List<Button>();
+        private static readonly List<UiPanelOpacityEntry> uiPanelOpacityTargets = new List<UiPanelOpacityEntry>();
+        private float uiPanelOpacity = 0.88f;
+        private Coroutine throwRoutine;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void AutoStart()
@@ -100,6 +125,11 @@ namespace DecisionDisc
         private void Awake()
         {
             DontDestroyOnLoad(gameObject);
+            // Allow high-refresh Android devices to render the UI/throw animation
+            // at up to 120 FPS.  The device panel still determines the real cap
+            // (a 60 Hz emulator cannot display more than 60 frames per second).
+            Application.targetFrameRate = 120;
+            QualitySettings.vSyncCount = 0;
             Application.logMessageReceived += CaptureUnityError;
             Screen.orientation = ScreenOrientation.Portrait;
             UnityEngine.Input.multiTouchEnabled = true;
@@ -109,7 +139,6 @@ namespace DecisionDisc
             softRectSprite = CreateRoundedRectSprite();
             defaultYesTexture = Resources.Load<Texture2D>("Theme/default-yes-symbol-v3");
             defaultNoTexture = Resources.Load<Texture2D>("Theme/default-no-symbol-v3");
-            throwButtonIconTexture = Resources.Load<Texture2D>("Theme/throw-button-icon");
             store = new DecisionStore();
             files = gameObject.AddComponent<AndroidFileBridge>();
             files.TextImported += PreviewImport;
@@ -131,6 +160,13 @@ namespace DecisionDisc
         private void BuildUi()
         {
             ApplyThemePalette();
+            ButtonTextColor = ParseHexColor(store.Appearance.buttonTextColor, lightTheme ? Hex("283C59") : Hex("F5FAFF"));
+            uiPanelOpacity = Mathf.Clamp01(store.Appearance.uiPanelOpacity);
+            uiPanelOpacityTargets.Clear();
+            themeBackgroundImage = null;
+            themeBackgroundVeil = null;
+            customBackgroundImage = null;
+            customBackgroundVeil = null;
             if (FindObjectOfType<EventSystem>() == null)
             {
                 var events = new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
@@ -150,25 +186,35 @@ namespace DecisionDisc
                 Texture2D themeArt = Resources.Load<Texture2D>("Theme/resonance-day-background");
                 if (themeArt != null)
                 {
+                    float opacity = Mathf.Clamp01(store.Appearance.backgroundOpacity);
                     GameObject artObject = new GameObject("ResonanceThemeArt", typeof(RectTransform), typeof(RawImage));
                     artObject.transform.SetParent(background.transform, false);
-                    RawImage art = artObject.GetComponent<RawImage>(); art.texture = themeArt; art.color = new Color(1f, 1f, 1f, .72f); art.raycastTarget = false;
-                    Stretch(art.rectTransform);
-                    Image veil = Image("ReadabilityVeil", background.transform, new Color(.97f, .99f, 1f, .20f)); Stretch(veil.rectTransform); veil.raycastTarget = false;
+                    themeBackgroundImage = artObject.GetComponent<RawImage>(); themeBackgroundImage.texture = themeArt; themeBackgroundImage.color = new Color(1f, 1f, 1f, opacity); themeBackgroundImage.raycastTarget = false;
+                    Stretch(themeBackgroundImage.rectTransform);
+                    themeBackgroundVeil = Image("ReadabilityVeil", background.transform, new Color(.97f, .99f, 1f, .08f * opacity)); Stretch(themeBackgroundVeil.rectTransform); themeBackgroundVeil.raycastTarget = false;
                 }
             }
             Sprite customBackground = LoadSprite(store.Appearance.backgroundImagePath);
             if (customBackground != null)
             {
-                Image customArt = Image("CustomBackground", background.transform, Color.white);
-                customArt.sprite = customBackground;
-                customArt.preserveAspect = true;
-                customArt.color = new Color(1f, 1f, 1f, .62f);
-                customArt.raycastTarget = false;
-                Stretch(customArt.rectTransform);
-                Image customVeil = Image("CustomBackgroundVeil", background.transform, new Color(.95f, .985f, 1f, .26f));
-                customVeil.raycastTarget = false;
-                Stretch(customVeil.rectTransform);
+                float opacity = Mathf.Clamp01(store.Appearance.backgroundOpacity);
+                customBackgroundImage = Image("CustomBackground", background.transform, Color.white);
+                customBackgroundImage.sprite = customBackground;
+                // The saved crop is portrait (720x1280), while Android devices
+                // commonly have a taller viewport once the status/navigation
+                // areas are included.  Preserve the artwork ratio but envelope
+                // the viewport so no strip of the default theme can show above
+                // or below the user's background.
+                customBackgroundImage.preserveAspect = false;
+                customBackgroundImage.color = new Color(1f, 1f, 1f, opacity);
+                customBackgroundImage.raycastTarget = false;
+                Stretch(customBackgroundImage.rectTransform);
+                AspectRatioFitter backgroundCover = customBackgroundImage.gameObject.AddComponent<AspectRatioFitter>();
+                backgroundCover.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
+                backgroundCover.aspectRatio = Mathf.Max(.01f, customBackground.texture.width / (float)Mathf.Max(1, customBackground.texture.height));
+                customBackgroundVeil = Image("CustomBackgroundVeil", background.transform, new Color(.95f, .985f, 1f, .08f * opacity));
+                customBackgroundVeil.raycastTarget = false;
+                Stretch(customBackgroundVeil.rectTransform);
             }
 
             var safe = Rect("Safe Area", background.transform); Stretch(safe); safe.gameObject.AddComponent<SafeAreaFitter>();
@@ -185,32 +231,59 @@ namespace DecisionDisc
             BuildSavePromptPanel(safe);
             BuildSeriesPanel(safe);
             BuildCropPanel(safe);
+            ApplyUiPanelOpacity(uiPanelOpacity);
         }
 
         private GameObject BuildHome(Transform parent)
         {
             var page = Page("ThrowPage", parent);
-            Text title = Label("YES / NO 决策", page.transform, 46, TextAnchor.MiddleCenter, PrimaryText);
+            Text title = Label(InAppName(), page.transform, 46, TextAnchor.MiddleCenter, PrimaryText);
             SetHeight(title.rectTransform, 62);
             Text sub = Label("按住蓄力，3 秒达到满力，松开投掷", page.transform, 24, TextAnchor.MiddleCenter, SecondaryText); SetHeight(sub.rectTransform, 38);
 
             RectTransform visualStage = Rect("VisualStage", page.transform); SetHeight(visualStage, 520);
+            Image stageSurface = Image("BadgeStageSurface", visualStage, lightTheme ? new Color(.97f, .995f, 1f, .72f) : Panel);
+            RegisterPanelOpacity(stageSurface);
+            stageSurface.sprite = softRectSprite; stageSurface.type = UnityEngine.UI.Image.Type.Sliced;
+            Stretch(stageSurface.rectTransform, 4, 4, 4, 4); stageSurface.raycastTarget = false;
+            Outline stageEdge = stageSurface.gameObject.AddComponent<Outline>(); stageEdge.effectColor = new Color(Accent.r, Accent.g, Accent.b, .28f); stageEdge.effectDistance = new Vector2(1f, -1f);
+            Shadow stageShadow = stageSurface.gameObject.AddComponent<Shadow>(); stageShadow.effectColor = SurfaceShadow; stageShadow.effectDistance = new Vector2(0f, -7f);
+
+            Image orbit = Image("CollisionOrbit", visualStage, new Color(Accent.r, Accent.g, Accent.b, lightTheme ? .10f : .18f));
+            orbit.sprite = CreateRingSprite(); orbit.preserveAspect = true; orbit.raycastTarget = false;
+            orbit.rectTransform.anchorMin = orbit.rectTransform.anchorMax = new Vector2(.5f, .5f);
+            orbit.rectTransform.sizeDelta = new Vector2(430f, 430f); orbit.rectTransform.anchoredPosition = new Vector2(0f, 18f);
             homeFaces = Rect("HomeFaces", visualStage); Stretch((RectTransform)homeFaces);
-            var homeLayout = homeFaces.gameObject.AddComponent<HorizontalLayoutGroup>(); homeLayout.spacing = 34; homeLayout.padding = new RectOffset(18, 18, 10, 10); homeLayout.childControlHeight = true; homeLayout.childControlWidth = true; homeLayout.childForceExpandWidth = true;
+            homeCollisionMotion = homeFaces.gameObject.AddComponent<BadgeCollisionMotion>();
             throwStage = Rect("ThrowStage", visualStage); Stretch((RectTransform)throwStage);
             throwStage.gameObject.SetActive(false);
             RefreshHomeFaces();
 
-            RectTransform badgeSwitch = Rect("BadgeSwitch", page.transform); SetHeight(badgeSwitch, 50);
-            selectedBadgeText = Label("使用中 · " + store.SelectedBadge().name, badgeSwitch, 22, TextAnchor.MiddleLeft, SecondaryText);
-            Stretch(selectedBadgeText.rectTransform, 0, 0, 170, 0);
+            // An opaque row drawn after the face stage prevents the stage from visually
+            // bleeding into the active-badge information below it.
+            Image badgeSwitchSurface = Image("BadgeSwitch", page.transform, lightTheme ? new Color(1f, 1f, 1f, .96f) : Panel);
+            RegisterPanelOpacity(badgeSwitchSurface);
+            badgeSwitchSurface.sprite = softRectSprite; badgeSwitchSurface.type = UnityEngine.UI.Image.Type.Sliced;
+            Outline badgeSwitchEdge = badgeSwitchSurface.gameObject.AddComponent<Outline>(); badgeSwitchEdge.effectColor = new Color(Accent.r, Accent.g, Accent.b, .20f); badgeSwitchEdge.effectDistance = new Vector2(1f, -1f);
+            RectTransform badgeSwitch = badgeSwitchSurface.rectTransform; SetHeight(badgeSwitch, 78);
+            HorizontalLayoutGroup badgeSwitchLayout = badgeSwitchSurface.gameObject.AddComponent<HorizontalLayoutGroup>();
+            badgeSwitchLayout.padding = new RectOffset(18, 12, 8, 8);
+            badgeSwitchLayout.spacing = 12;
+            badgeSwitchLayout.childAlignment = TextAnchor.MiddleLeft;
+            badgeSwitchLayout.childControlWidth = true;
+            badgeSwitchLayout.childControlHeight = true;
+            badgeSwitchLayout.childForceExpandWidth = false;
+            badgeSwitchLayout.childForceExpandHeight = true;
+            selectedBadgeText = Label("当前徽章：" + store.SelectedBadge().name, badgeSwitch, 28, TextAnchor.MiddleLeft, PrimaryText);
+            selectedBadgeText.fontStyle = FontStyle.Normal;
+            LayoutElement selectedBadgeLayout = selectedBadgeText.gameObject.AddComponent<LayoutElement>();
+            selectedBadgeLayout.flexibleWidth = 1f;
+            selectedBadgeLayout.minWidth = 0f;
             Button switchBadge = Button("SwitchBadge", badgeSwitch, "更换", () => ShowPage(1), Panel, 50);
-            RectTransform switchBadgeRect = switchBadge.GetComponent<RectTransform>();
-            switchBadgeRect.anchorMin = new Vector2(1f, 0f); switchBadgeRect.anchorMax = Vector2.one;
-            switchBadgeRect.pivot = new Vector2(1f, .5f); switchBadgeRect.anchoredPosition = Vector2.zero; switchBadgeRect.sizeDelta = new Vector2(150, 0);
+            SetWidth(switchBadge.GetComponent<RectTransform>(), 150);
 
-            questionInput = Input("可选：输入本次要决定的问题", page.transform, 104, false);
-            var seriesButton = Button("Series", page.transform, "赛制：1 次决定  ›", () => OpenModal(seriesPanel), Panel, 76);
+            questionInput = Input("可选：输入本次要决定的问题", page.transform, 140, false);
+            var seriesButton = Button("Series", page.transform, "投掷数量：1 枚  ›", () => OpenModal(seriesPanel), Panel, 140);
             seriesText = seriesButton.GetComponentInChildren<Text>();
 
             var chargeObject = new GameObject("Charge", typeof(RectTransform), typeof(Image), typeof(ChargeThrowButton));
@@ -220,16 +293,9 @@ namespace DecisionDisc
             chargeBackground.sprite = softRectSprite; chargeBackground.type = UnityEngine.UI.Image.Type.Sliced;
             Outline chargeEdge = chargeObject.AddComponent<Outline>(); chargeEdge.effectColor = new Color(Accent.r, Accent.g, Accent.b, .35f); chargeEdge.effectDistance = new Vector2(2f, -2f);
             var fill = Image("Fill", chargeObject.transform, Accent); Stretch(fill.rectTransform); fill.type = UnityEngine.UI.Image.Type.Filled; fill.fillMethod = UnityEngine.UI.Image.FillMethod.Horizontal; fill.fillAmount = 0;
-            Image launchIcon = Image("ThrowIcon", chargeObject.transform, Color.white);
-            if (throwButtonIconTexture != null)
-            {
-                throwButtonIconSprite = Sprite.Create(throwButtonIconTexture, new Rect(0, 0, throwButtonIconTexture.width, throwButtonIconTexture.height), new Vector2(.5f, .5f), 100f);
-                launchIcon.sprite = throwButtonIconSprite;
-            }
-            launchIcon.preserveAspect = true; launchIcon.raycastTarget = false;
-            launchIcon.rectTransform.anchorMin = launchIcon.rectTransform.anchorMax = new Vector2(0f, .5f);
-            launchIcon.rectTransform.pivot = new Vector2(0f, .5f); launchIcon.rectTransform.anchoredPosition = new Vector2(18f, 0f); launchIcon.rectTransform.sizeDelta = new Vector2(104f, 104f);
-            var chargeLabel = Label("按住蓄力，3 秒达到满力", chargeObject.transform, 40, TextAnchor.MiddleCenter, PrimaryText); Stretch(chargeLabel.rectTransform, 116, 0, 18, 0);
+            // The launch surface is intentionally saturated, so its instruction must
+            // remain high contrast instead of inheriting the darker body-text colour.
+            var chargeLabel = Label("按住蓄力，3 秒达到满力", chargeObject.transform, 40, TextAnchor.MiddleCenter, ButtonTextColor); Stretch(chargeLabel.rectTransform, 18, 0, 18, 0);
             chargeButton = chargeObject.GetComponent<ChargeThrowButton>(); chargeButton.Label = chargeLabel; chargeButton.Fill = fill; chargeButton.Released += Throw;
 
             status = Label("尚未投掷；结果默认不会保存", page.transform, 30, TextAnchor.MiddleCenter, SecondaryText); SetHeight(status.rectTransform, 70);
@@ -265,10 +331,26 @@ namespace DecisionDisc
             Transform content = ScrollContent("SettingsScroll", page.transform, 0);
             Text appearanceTitle = Label("外观与数据", content, 31, TextAnchor.MiddleLeft, Accent); SetHeight(appearanceTitle.rectTransform, 54);
             Button("Theme", content, lightTheme ? "切换为夜间主题" : "切换为日间主题", ToggleTheme, Panel, 82);
+            Text appNameHint = Label("应用名称：决策勋章", content, 22, TextAnchor.MiddleLeft, SecondaryText); SetHeight(appNameHint.rectTransform, 44);
+            buttonTextColorStatus = Label("按钮/蓄力文字颜色：" + store.Appearance.buttonTextColor, content, 22, TextAnchor.MiddleLeft, SecondaryText); SetHeight(buttonTextColorStatus.rectTransform, 44);
+            Transform buttonTextColorControls = Horizontal("ButtonTextColorControls", content, 82);
+            buttonTextColorInput = Input("输入 HEX，例如 #283C59", buttonTextColorControls, 76, false);
+            buttonTextColorInput.text = store.Appearance.buttonTextColor;
+            buttonTextColorInput.characterLimit = 7;
+            SetWidth(buttonTextColorInput.GetComponent<RectTransform>(), 300);
+            Button("ApplyButtonTextColor", buttonTextColorControls, "应用文字颜色", ApplyButtonTextColor, Panel, 76);
+            Button("ResetButtonTextColor", buttonTextColorControls, "恢复默认", ResetButtonTextColor, Panel, 76);
             backgroundStatus = Label(string.IsNullOrEmpty(store.Appearance.backgroundImagePath) ? "背景：使用应用默认背景" : "背景：正在使用你上传的图片", content, 24, TextAnchor.MiddleLeft, SecondaryText); SetHeight(backgroundStatus.rectTransform, 48);
             Transform backgroundActions = Horizontal("BackgroundActions", content, 86);
             Button("UploadBackground", backgroundActions, "上传/更换背景图", PickBackgroundImage, Accent, 82);
             Button("ResetBackground", backgroundActions, "恢复默认背景", ResetBackgroundImage, Panel, 82);
+            backgroundOpacityText = Label("背景不透明度：" + Mathf.RoundToInt(store.Appearance.backgroundOpacity * 100f) + "%", content, 24, TextAnchor.MiddleLeft, SecondaryText); SetHeight(backgroundOpacityText.rectTransform, 44);
+            backgroundOpacitySlider = SliderControl("BackgroundOpacity", content, 0f, 1f, OnBackgroundOpacityChanged);
+            backgroundOpacitySlider.SetValueWithoutNotify(store.Appearance.backgroundOpacity);
+            uiPanelOpacityText = Label("界面底板不透明度：" + Mathf.RoundToInt(store.Appearance.uiPanelOpacity * 100f) + "%", content, 24, TextAnchor.MiddleLeft, SecondaryText); SetHeight(uiPanelOpacityText.rectTransform, 44);
+            uiPanelOpacitySlider = SliderControl("UiPanelOpacity", content, 0f, 1f, OnUiPanelOpacityChanged);
+            uiPanelOpacitySlider.SetValueWithoutNotify(store.Appearance.uiPanelOpacity);
+            Text uiPanelOpacityHint = Label("仅影响卡片、输入框和按钮的底板，不影响背景图片、文字和徽章。", content, 21, TextAnchor.MiddleLeft, SecondaryText); SetHeight(uiPanelOpacityHint.rectTransform, 50);
             var historyActions = Horizontal("HistoryDataActions", content, 86);
             Button("Export", historyActions, "导出历史 JSON", () => { UserActionLog.Add("点击导出历史 JSON"); files.ExportJson(store.CreateExportJson()); }, Panel, 82);
             Button("Import", historyActions, "导入历史 JSON", files.PickJson, Panel, 82);
@@ -286,15 +368,27 @@ namespace DecisionDisc
 
         private void BuildNavigation(Transform safe)
         {
-            var nav = Horizontal("Navigation", safe, 94);
-            var rt = (RectTransform)nav; rt.anchorMin = new Vector2(0, 0); rt.anchorMax = new Vector2(1, 0); rt.pivot = new Vector2(.5f, 0); rt.anchoredPosition = Vector2.zero; rt.sizeDelta = new Vector2(0, 94);
+            Image navSurface = Image("Navigation", safe, lightTheme ? new Color(1f, 1f, 1f, .96f) : Panel);
+            RegisterPanelOpacity(navSurface);
+            navSurface.sprite = softRectSprite; navSurface.type = UnityEngine.UI.Image.Type.Sliced;
+            Shadow navShadow = navSurface.gameObject.AddComponent<Shadow>(); navShadow.effectColor = SurfaceShadow; navShadow.effectDistance = new Vector2(0f, 5f);
+            var nav = navSurface.transform;
+            SetHeight(navSurface.rectTransform, 94);
+            var rt = navSurface.rectTransform; rt.anchorMin = new Vector2(0, 0); rt.anchorMax = new Vector2(1, 0); rt.pivot = new Vector2(.5f, 0); rt.anchoredPosition = Vector2.zero; rt.sizeDelta = new Vector2(0, 94);
+            var navLayout = navSurface.gameObject.AddComponent<HorizontalLayoutGroup>();
+            navLayout.spacing = 8; navLayout.padding = new RectOffset(14, 14, 10, 10); navLayout.childControlHeight = true; navLayout.childControlWidth = true; navLayout.childForceExpandWidth = true;
             string[] names = { "◆  投掷", "◉  徽章", "▤  记录", "⚙  设置" };
-            for (int i = 0; i < names.Length; i++) { int index = i; Button("Nav" + i, nav, names[i], () => ShowPage(index), Panel, 94); }
+            for (int i = 0; i < names.Length; i++)
+            {
+                int index = i;
+                Button navigation = Button("Nav" + i, nav, names[i], () => ShowPage(index), Panel, 94);
+                navigationButtons.Add(navigation);
+            }
         }
 
         private void BuildModalBackdrop(Transform parent)
         {
-            Image backdrop = Image("ModalBackdrop", parent, new Color(.02f, .05f, .10f, .38f));
+            Image backdrop = Image("ModalBackdrop", parent, new Color(.05f, .16f, .28f, .34f));
             Stretch(backdrop.rectTransform);
             Button dismiss = backdrop.gameObject.AddComponent<Button>();
             dismiss.targetGraphic = backdrop;
@@ -357,12 +451,32 @@ namespace DecisionDisc
             if (modalBackdrop != null) modalBackdrop.SetActive(false);
         }
 
+        private static Color ModalSurfaceColor()
+        {
+            return lightTheme ? new Color(.975f, .995f, 1f, .985f) : new Color(.10f, .17f, .27f, .985f);
+        }
+
+        private static void StyleModalSurface(Image surface)
+        {
+            if (surface == null) return;
+            RegisterPanelOpacity(surface);
+            surface.sprite = softRectSprite;
+            surface.type = UnityEngine.UI.Image.Type.Sliced;
+            Outline edge = surface.gameObject.AddComponent<Outline>();
+            edge.effectColor = new Color(Accent.r, Accent.g, Accent.b, lightTheme ? .38f : .30f);
+            edge.effectDistance = new Vector2(2f, -2f);
+            Shadow shadow = surface.gameObject.AddComponent<Shadow>();
+            shadow.effectColor = lightTheme ? new Color(.10f, .32f, .50f, .24f) : new Color(0f, 0f, 0f, .38f);
+            shadow.effectDistance = new Vector2(0f, -12f);
+        }
+
         private void BuildImportPanel(Transform parent)
         {
-            importPanel = Image("ImportPreviewPanel", parent, new Color(0.05f, .07f, .12f, .97f)).gameObject; Stretch((RectTransform)importPanel.transform, 70, 220, 70, 220);
+            Image importSurface = Image("ImportPreviewPanel", parent, ModalSurfaceColor());
+            StyleModalSurface(importSurface); importPanel = importSurface.gameObject; Stretch((RectTransform)importPanel.transform, 70, 220, 70, 220);
             var layout = importPanel.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(32, 32, 32, 32); layout.spacing = 24;
-            Label("导入预览", importPanel.transform, 42, TextAnchor.MiddleCenter, Color.white);
-            importPreview = Label("", importPanel.transform, 28, TextAnchor.UpperLeft, Color.white); SetFlexible(importPreview.rectTransform);
+            Label("导入预览", importPanel.transform, 42, TextAnchor.MiddleCenter, PrimaryText);
+            importPreview = Label("", importPanel.transform, 28, TextAnchor.UpperLeft, PrimaryText); SetFlexible(importPreview.rectTransform);
             Button("Merge", importPanel.transform, "与已保存记录合并", () => ApplyImport(false), Accent, 86);
             Button("Replace", importPanel.transform, "替换全部已保存记录", () => ApplyImport(true), No, 86);
             Button("Cancel", importPanel.transform, "取消", () => CloseModal(importPanel), Panel, 76);
@@ -371,11 +485,12 @@ namespace DecisionDisc
 
         private void BuildBadgeCreatePanel(Transform parent)
         {
-            createBadgePanel = Image("CreateBadgePanel", parent, new Color(0.05f, .07f, .12f, .98f)).gameObject;
+            Image createSurface = Image("CreateBadgePanel", parent, ModalSurfaceColor());
+            StyleModalSurface(createSurface); createBadgePanel = createSurface.gameObject;
             Stretch((RectTransform)createBadgePanel.transform, 90, 470, 90, 470);
             var layout = createBadgePanel.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(36, 36, 36, 36); layout.spacing = 28; layout.childForceExpandHeight = false;
-            Text title = Label("创建新徽章", createBadgePanel.transform, 42, TextAnchor.MiddleCenter, Color.white); SetHeight(title.rectTransform, 76);
-            Text hint = Label("先输入名称。创建后会立即出现在列表顶部，默认使用 YES/NO 文字面和 50% 概率。", createBadgePanel.transform, 26, TextAnchor.MiddleCenter, Hex("D0D5DD")); SetHeight(hint.rectTransform, 110);
+            Text title = Label("创建新徽章", createBadgePanel.transform, 42, TextAnchor.MiddleCenter, PrimaryText); SetHeight(title.rectTransform, 76);
+            Text hint = Label("先输入名称。创建后会立即出现在列表顶部，默认使用 YES/NO 文字面和 50% 概率。", createBadgePanel.transform, 26, TextAnchor.MiddleCenter, SecondaryText); SetHeight(hint.rectTransform, 110);
             createBadgeNameInput = Input("请输入徽章名称", createBadgePanel.transform, 100, false);
             Button("ConfirmCreate", createBadgePanel.transform, "创建徽章", ConfirmCreateBadge, Accent, 88);
             Button("CancelCreate", createBadgePanel.transform, "取消", () => CloseModal(createBadgePanel), Panel, 78);
@@ -384,14 +499,15 @@ namespace DecisionDisc
 
         private void BuildBadgeDetailPanel(Transform parent)
         {
-            badgeDetailPanel = Image("BadgeDetailPanel", parent, new Color(0.05f, .07f, .12f, .98f)).gameObject;
+            Image detailSurface = Image("BadgeDetailPanel", parent, ModalSurfaceColor());
+            StyleModalSurface(detailSurface); badgeDetailPanel = detailSurface.gameObject;
             Stretch((RectTransform)badgeDetailPanel.transform, 54, 160, 54, 130);
             var layout = badgeDetailPanel.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(34, 34, 30, 30); layout.spacing = 18; layout.childForceExpandHeight = false;
-            badgeDetailTitle = Label("徽章设置", badgeDetailPanel.transform, 42, TextAnchor.MiddleCenter, Color.white); SetHeight(badgeDetailTitle.rectTransform, 70);
+            badgeDetailTitle = Label("徽章设置", badgeDetailPanel.transform, 42, TextAnchor.MiddleCenter, PrimaryText); SetHeight(badgeDetailTitle.rectTransform, 70);
             badgeDetailNameInput = Input("徽章名称", badgeDetailPanel.transform, 88, false);
             badgeDetailFaces = Horizontal("DetailFaces", badgeDetailPanel.transform, 260);
-            Text imageHint = Label("点击 YES 或 NO 图片即可上传、替换并裁切", badgeDetailPanel.transform, 23, TextAnchor.MiddleCenter, Hex("98A2B3")); SetHeight(imageHint.rectTransform, 52);
-            badgeProbabilityText = Label("YES 概率  50%", badgeDetailPanel.transform, 30, TextAnchor.MiddleCenter, Color.white); SetHeight(badgeProbabilityText.rectTransform, 52);
+            Text imageHint = Label("点击 YES 或 NO 图片即可上传、替换并裁切", badgeDetailPanel.transform, 23, TextAnchor.MiddleCenter, SecondaryText); SetHeight(imageHint.rectTransform, 52);
+            badgeProbabilityText = Label("YES 概率  50%", badgeDetailPanel.transform, 30, TextAnchor.MiddleCenter, PrimaryText); SetHeight(badgeProbabilityText.rectTransform, 52);
             Transform probabilityRow = Horizontal("ProbabilityControls", badgeDetailPanel.transform, 82);
             HorizontalLayoutGroup probabilityLayout = probabilityRow.GetComponent<HorizontalLayoutGroup>(); probabilityLayout.childForceExpandWidth = false;
             badgeProbabilitySlider = SliderControl("BadgeProbability", probabilityRow, 0f, 1f, OnProbabilitySliderChanged);
@@ -399,7 +515,7 @@ namespace DecisionDisc
             badgeProbabilityInput = Input("0–100", probabilityRow, 76, false); SetWidth(badgeProbabilityInput.GetComponent<RectTransform>(), 112);
             badgeProbabilityInput.contentType = InputField.ContentType.IntegerNumber;
             badgeProbabilityInput.onEndEdit.AddListener(ApplyProbabilityInput);
-            Text explanation = Label("可设置 0%–100%。0% 必定 NO，100% 必定 YES；蓄力仅影响动画表现。", badgeDetailPanel.transform, 24, TextAnchor.MiddleCenter, Hex("98A2B3")); SetHeight(explanation.rectTransform, 86);
+            Text explanation = Label("可设置 0%–100%。0% 必定 NO，100% 必定 YES；蓄力仅影响动画表现。", badgeDetailPanel.transform, 24, TextAnchor.MiddleCenter, SecondaryText); SetHeight(explanation.rectTransform, 86);
             Button("SaveDetail", badgeDetailPanel.transform, "保存徽章设置", SaveBadgeDetail, Accent, 84);
             badgeDetailDeleteButton = Button("DeleteDetail", badgeDetailPanel.transform, "删除此徽章", DeleteDetailBadge, No, 76);
             Button("CloseDetail", badgeDetailPanel.transform, "返回徽章列表", () => CloseModal(badgeDetailPanel), Panel, 76);
@@ -408,14 +524,15 @@ namespace DecisionDisc
 
         private void BuildSavePromptPanel(Transform parent)
         {
-            savePromptPanel = Image("SavePromptPanel", parent, new Color(.05f, .07f, .12f, .97f)).gameObject;
+            Image promptSurface = Image("SavePromptPanel", parent, ModalSurfaceColor());
+            StyleModalSurface(promptSurface); savePromptPanel = promptSurface.gameObject;
             RectTransform promptRect = (RectTransform)savePromptPanel.transform;
             promptRect.anchorMin = new Vector2(0, 0); promptRect.anchorMax = new Vector2(1, 0); promptRect.pivot = new Vector2(.5f, 0);
             promptRect.offsetMin = new Vector2(50, 115); promptRect.offsetMax = new Vector2(-50, 1015);
             var layout = savePromptPanel.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(38, 38, 38, 38); layout.spacing = 24; layout.childForceExpandHeight = false;
-            savePromptTitle = Label("是否保存本次结果？", savePromptPanel.transform, 40, TextAnchor.MiddleCenter, Color.white); SetHeight(savePromptTitle.rectTransform, 100);
+            savePromptTitle = Label("是否保存本次结果？", savePromptPanel.transform, 40, TextAnchor.MiddleCenter, PrimaryText); SetHeight(savePromptTitle.rectTransform, 100);
             savePromptFaces = Horizontal("SavePromptFaces", savePromptPanel.transform, 220);
-            Text noteTitle = Label("备注（可选，可在历史记录中继续修改）", savePromptPanel.transform, 25, TextAnchor.MiddleLeft, Color.white); SetHeight(noteTitle.rectTransform, 46);
+            Text noteTitle = Label("备注（可选，可在历史记录中继续修改）", savePromptPanel.transform, 25, TextAnchor.MiddleLeft, SecondaryText); SetHeight(noteTitle.rectTransform, 46);
             savePromptNote = NoteInput("输入本次备注", savePromptPanel.transform, 110);
             Button("ConfirmSave", savePromptPanel.transform, "保存本次记录", SaveCurrent, Accent, 88);
             Button("DiscardResult", savePromptPanel.transform, "不保存并删除本次结果", DiscardCurrent, Panel, 82);
@@ -424,35 +541,38 @@ namespace DecisionDisc
 
         private void BuildSeriesPanel(Transform parent)
         {
-            seriesPanel = Image("SeriesPanel", parent, new Color(.05f, .07f, .12f, .97f)).gameObject;
+            Image seriesSurface = Image("SeriesPanel", parent, ModalSurfaceColor());
+            StyleModalSurface(seriesSurface); seriesPanel = seriesSurface.gameObject;
             Stretch((RectTransform)seriesPanel.transform, 110, 520, 110, 520);
             var layout = seriesPanel.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(40, 40, 40, 40); layout.spacing = 24; layout.childForceExpandHeight = false;
-            Text title = Label("选择投掷赛制", seriesPanel.transform, 42, TextAnchor.MiddleCenter, Color.white); SetHeight(title.rectTransform, 90);
-            Text hint = Label("多局赛制会同时投出对应数量的徽章\n每枚徽章都会独立计算结果", seriesPanel.transform, 24, TextAnchor.MiddleCenter, Hex("D0D5DD")); SetHeight(hint.rectTransform, 86);
-            Button("One", seriesPanel.transform, "1 次决定", () => SelectSeries(1), Panel, 88);
-            Button("Three", seriesPanel.transform, "3 局 2 胜", () => SelectSeries(3), Panel, 88);
-            Button("Five", seriesPanel.transform, "5 局 3 胜", () => SelectSeries(5), Panel, 88);
+            Text title = Label("选择投掷数量", seriesPanel.transform, 42, TextAnchor.MiddleCenter, PrimaryText); SetHeight(title.rectTransform, 90);
+            Text hint = Label("同时投出对应数量的徽章\n3 枚取 2 胜，5 枚取 3 胜", seriesPanel.transform, 24, TextAnchor.MiddleCenter, SecondaryText); SetHeight(hint.rectTransform, 86);
+            Button("One", seriesPanel.transform, "1 枚（单次决定）", () => SelectSeries(1), Panel, 88);
+            Button("Three", seriesPanel.transform, "3 枚（取 2 胜）", () => SelectSeries(3), Panel, 88);
+            Button("Five", seriesPanel.transform, "5 枚（取 3 胜）", () => SelectSeries(5), Panel, 88);
             Button("Close", seriesPanel.transform, "取消", () => CloseModal(seriesPanel), No, 78);
             seriesPanel.SetActive(false);
         }
 
         private void BuildCropPanel(Transform parent)
         {
-            cropPanel = Image("CropPanel", parent, new Color(.05f, .07f, .12f, .98f)).gameObject;
+            Image cropSurface = Image("CropPanel", parent, ModalSurfaceColor());
+            StyleModalSurface(cropSurface); cropPanel = cropSurface.gameObject;
             Stretch((RectTransform)cropPanel.transform, 70, 160, 70, 130);
             var layout = cropPanel.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(34, 34, 30, 30); layout.spacing = 20; layout.childForceExpandHeight = false;
-            Text title = Label("裁切圆形徽章", cropPanel.transform, 40, TextAnchor.MiddleCenter, Color.white); SetHeight(title.rectTransform, 66);
+            cropTitle = Label("裁切圆形徽章", cropPanel.transform, 40, TextAnchor.MiddleCenter, PrimaryText); SetHeight(cropTitle.rectTransform, 66);
             RectTransform cropStage = Rect("CropStage", cropPanel.transform); SetHeight(cropStage, 660);
-            Image viewport = Image("CircleViewport", cropStage, Color.white); viewport.sprite = circleSprite; viewport.preserveAspect = true;
-            viewport.rectTransform.anchorMin = viewport.rectTransform.anchorMax = new Vector2(.5f, .5f); viewport.rectTransform.sizeDelta = new Vector2(620, 620);
-            Mask circleMask = viewport.gameObject.AddComponent<Mask>(); circleMask.showMaskGraphic = false;
-            cropPreview = Image("CropPreview", viewport.transform, Color.white); cropPreview.rectTransform.anchorMin = cropPreview.rectTransform.anchorMax = new Vector2(.5f, .5f); cropPreview.rectTransform.pivot = new Vector2(.5f, .5f);
-            cropGesture = viewport.gameObject.AddComponent<CropGestureHandler>(); cropGesture.Target = cropPreview.rectTransform; cropGesture.Viewport = viewport.rectTransform;
-            Image ring = Image("CropRing", cropStage, Color.white); ring.sprite = CreateRingSprite(); ring.preserveAspect = true; ring.raycastTarget = false;
-            ring.rectTransform.anchorMin = ring.rectTransform.anchorMax = new Vector2(.5f, .5f); ring.rectTransform.sizeDelta = new Vector2(632, 632);
-            Text hint = Label("单指拖动图片 · 双指捏合缩放 · 圆圈内为最终徽章", cropPanel.transform, 25, TextAnchor.MiddleCenter, Hex("D0D5DD")); SetHeight(hint.rectTransform, 70);
+            cropViewport = Image("CropViewport", cropStage, Color.white); cropViewport.sprite = circleSprite; cropViewport.preserveAspect = true;
+            cropViewport.rectTransform.anchorMin = cropViewport.rectTransform.anchorMax = new Vector2(.5f, .5f); cropViewport.rectTransform.sizeDelta = new Vector2(620, 620);
+            Mask cropMask = cropViewport.gameObject.AddComponent<Mask>(); cropMask.showMaskGraphic = false;
+            Outline cropEdge = cropViewport.gameObject.AddComponent<Outline>(); cropEdge.effectColor = Accent; cropEdge.effectDistance = new Vector2(3f, -3f);
+            cropPreview = Image("CropPreview", cropViewport.transform, Color.white); cropPreview.rectTransform.anchorMin = cropPreview.rectTransform.anchorMax = new Vector2(.5f, .5f); cropPreview.rectTransform.pivot = new Vector2(.5f, .5f);
+            cropGesture = cropViewport.gameObject.AddComponent<CropGestureHandler>(); cropGesture.Target = cropPreview.rectTransform; cropGesture.Viewport = cropViewport.rectTransform;
+            cropRing = Image("CropRing", cropStage, Color.white); cropRing.sprite = CreateRingSprite(); cropRing.preserveAspect = true; cropRing.raycastTarget = false;
+            cropRing.rectTransform.anchorMin = cropRing.rectTransform.anchorMax = new Vector2(.5f, .5f); cropRing.rectTransform.sizeDelta = new Vector2(632, 632);
+            cropHint = Label("单指拖动图片 · 双指捏合缩放 · 圆圈内为最终徽章", cropPanel.transform, 25, TextAnchor.MiddleCenter, SecondaryText); SetHeight(cropHint.rectTransform, 70);
             Button("ConfirmCrop", cropPanel.transform, "确认裁切并保存", ConfirmCrop, Accent, 84);
-            Button("CancelCrop", cropPanel.transform, "取消", () => CloseModal(cropPanel), Panel, 74);
+            Button("CancelCrop", cropPanel.transform, "取消", CancelCrop, Panel, 74);
             cropPanel.SetActive(false);
         }
 
@@ -460,6 +580,7 @@ namespace DecisionDisc
         {
             if (pending != null) return;
             if (chargeButton != null) chargeButton.SetInteractable(false);
+            SetDecisionNavigationLocked(true);
             string question = questionInput.text.Trim();
             BadgeDefinition selectedBadge = store.SelectedBadge();
             float effectiveProbability = DecisionEngine.EffectiveYesProbability(strength, mode, selectedBadge.yesProbability);
@@ -474,8 +595,9 @@ namespace DecisionDisc
             bool yes = yesWins > noWins;
             pendingHoldSeconds = heldSeconds;
             pending = new PendingDecision { Question = question, IsYes = yes, Strength = strength, StrengthSource = source, Mode = mode, TimestampUtc = DateTime.UtcNow, BadgeId = selectedBadge.id, YesProbabilityUsed = effectiveProbability, SeriesLength = seriesLength, YesWins = yesWins, NoWins = noWins, RoundResults = new string(rounds) };
-            UserActionLog.Add("开始投掷；问题=" + (string.IsNullOrEmpty(question) ? "（未填写）" : question) + "；赛制=" + SeriesLabel(seriesLength) + "；徽章=" + selectedBadge.name + "；力度=" + Mathf.RoundToInt(strength * 100) + "%");
-            StopAllCoroutines(); StartCoroutine(AnimateThrow(pending));
+            UserActionLog.Add("开始投掷；问题=" + (string.IsNullOrEmpty(question) ? "（未填写）" : question) + "；投掷数量=" + SeriesLabel(seriesLength) + "；徽章=" + selectedBadge.name + "；力度=" + Mathf.RoundToInt(strength * 100) + "%");
+            if (throwRoutine != null) StopCoroutine(throwRoutine);
+            throwRoutine = StartCoroutine(AnimateThrow(pending));
         }
 
         private IEnumerator AnimateThrow(PendingDecision value)
@@ -483,23 +605,32 @@ namespace DecisionDisc
             float holdFactor = Mathf.InverseLerp(0f, 3f, Mathf.Clamp(pendingHoldSeconds, 0f, 3f));
             // Even a short press gets a readable, weighty throw. Longer presses still
             // travel higher and extend the full motion, capped at three seconds.
-            float duration = Mathf.Lerp(1.2f, 3f, Mathf.SmoothStep(0f, 1f, holdFactor));
+            // Keep the same turn budget, but give the motion more time to read as
+            // a throw instead of a fast flip.  The press is still capped at 3 s;
+            // this only lengthens the airborne animation.
+            float duration = Mathf.Lerp(1.55f, 3.05f, Mathf.SmoothStep(0f, 1f, holdFactor));
             BadgeDefinition animationBadge = store.Badges.badges.Find(item => item.id == value.BadgeId) ?? store.SelectedBadge();
+            if (homeCollisionMotion != null) yield return homeCollisionMotion.PlayRelease();
             PrepareThrowDiscs(value.SeriesLength, animationBadge);
             Canvas.ForceUpdateCanvases();
             throwDiscBasePositions.Clear();
             for (int i = 0; i < throwDiscs.Count; i++) throwDiscBasePositions.Add(throwDiscs[i].RectTransform.anchoredPosition);
             bool[] physicsStarted = new bool[throwDiscs.Count];
-            bool[] resultCorrectionStarted = new bool[throwDiscs.Count];
             status.text = "投掷中…";
-            for (float t = 0; t < duration; t += Time.unscaledDeltaTime)
+            float staggerSeconds = value.SeriesLength <= 1 ? 0f : duration * .045f;
+            float totalDuration = duration + staggerSeconds * Mathf.Max(0, throwDiscs.Count - 1);
+            float spinTurns = Mathf.Lerp(3f, 10f, holdFactor * holdFactor);
+            float rotationalSeconds = Mathf.Max(.1f, duration * .70f);
+            const float launchCueEnd = .08f;
+            const float landingStart = .78f;
+            for (float t = 0; t < totalDuration; t += Time.unscaledDeltaTime)
             {
-                float p = t / duration;
                 for (int i = 0; i < throwDiscs.Count; i++)
                 {
                     CoinRenderView item = throwDiscs[i];
-                    float stagger = i * .03f;
-                    float localP = Mathf.Clamp01((p - stagger) / Mathf.Max(.8f, 1f - stagger));
+                    // Multi-disc throws keep the complete single-disc curve and duration,
+                    // but start each following disc a little later.
+                    float localP = Mathf.Clamp01((t - staggerSeconds * i) / duration);
                     Vector2 travel;
                     float flipDegrees;
                     float tiltDegrees;
@@ -508,68 +639,62 @@ namespace DecisionDisc
                     bool applyScriptedPose = true;
                     bool roundYes = i < value.RoundResults.Length && value.RoundResults[i] == 'Y';
 
-                    if (localP < .12f)
+                    if (localP < launchCueEnd)
                     {
-                        float anticipation = Mathf.SmoothStep(0f, 1f, localP / .12f);
-                        travel = new Vector2(-42f, -34f) * anticipation;
-                        flipDegrees = -22f * anticipation;
-                        tiltDegrees = 8f * anticipation;
-                        rollDegrees = -6f * anticipation;
-                        uniformScale = 1f - .05f * anticipation;
+                        float anticipation = Mathf.SmoothStep(0f, 1f, localP / launchCueEnd);
+                        // A compact downward compression gives the launch weight without
+                        // the old diagonal "slide away" that made a single coin look lost.
+                        travel = new Vector2(0f, -10f * Mathf.Sin(anticipation * Mathf.PI));
+                        flipDegrees = -14f * anticipation;
+                        tiltDegrees = 6f * anticipation;
+                        rollDegrees = -4f * anticipation;
+                        uniformScale = 1f - .035f * anticipation;
                     }
-                    else if (localP < .68f)
+                    else if (localP < 1f)
                     {
-                        float flight = (localP - .12f) / .74f;
+                        float flight = Mathf.InverseLerp(launchCueEnd, 1f, localP);
                         // Physically valid ballistic arc: y = 4H*t*(1-t), equivalent
                         // to an initial upward velocity followed by constant gravity.
-                        float multiDiscHeightScale = value.SeriesLength == 1 ? 1f : value.SeriesLength == 3 ? .82f : .68f;
-                        float height = 4f * Mathf.Lerp(190f, 280f, holdFactor) * multiDiscHeightScale * flight * (1f - flight);
-                        float lane = value.SeriesLength <= 1 ? 1f : i - (value.SeriesLength - 1) * .5f;
-                        float direction = Mathf.Abs(lane) > .01f ? Mathf.Sign(lane) : (i % 2 == 0 ? 1f : -1f);
-                        float sideways = value.SeriesLength <= 1
-                            ? Mathf.Lerp(-70f, 95f, Mathf.SmoothStep(0f, 1f, flight))
-                            : Mathf.Lerp(-18f * lane, 28f * lane, Mathf.SmoothStep(0f, 1f, flight));
-                        travel = new Vector2(sideways, height);
+                        float height = 4f * Mathf.Lerp(135f, 215f, holdFactor) * flight * (1f - flight);
+                        float flightX = Mathf.Lerp(0f, 18f, Mathf.SmoothStep(0f, 1f, flight));
+                        float landing = Mathf.InverseLerp(landingStart, 1f, localP);
+                        float sideways = landing <= 0f ? flightX : Mathf.Lerp(flightX, 0f, Mathf.SmoothStep(0f, 1f, landing));
+                        float landingBounce = landing > .72f ? Mathf.Sin(Mathf.InverseLerp(.72f, 1f, landing) * Mathf.PI) * 5f * (1f - landing) : 0f;
+                        travel = new Vector2(sideways, height + landingBounce);
                         flipDegrees = tiltDegrees = rollDegrees = 0f;
                         if (!physicsStarted[i])
                         {
-                            float spinFactor = Mathf.Clamp01(Mathf.Max(holdFactor, value.Strength));
-                            float spin = Mathf.Lerp(7f, 32f, spinFactor);
-                            float spinVariation = value.SeriesLength <= 1 ? 1f : .88f + i * .07f;
-                            float spinDirection = i % 2 == 0 ? 1f : -1f;
-                            item.BeginPhysicsSpin(new Vector3(spin * spinVariation * spinDirection, Mathf.Lerp(.7f, 2.8f, spinFactor) * direction, Mathf.Lerp(.4f, 1.8f, spinFactor) * -direction));
+                            // Multi-disc throws use exactly the same physical spin
+                            // parameters as a single disc. Only the launch time is
+                            // staggered, so adding discs does not reduce rotations.
+                            float spinFactor = holdFactor;
+                            float spin = spinTurns * Mathf.PI * 2f / rotationalSeconds;
+                            // Keep the face-flip axis identical to a single disc.
+                            // Alternate only the secondary tilt/roll axes so the
+                            // series still feels staggered without losing visible
+                            // YES/NO revolutions on the middle disc.
+                            float accentDirection = value.SeriesLength <= 1 || i % 2 == 0 ? 1f : -1f;
+                            item.BeginPhysicsSpin(new Vector3(spin, Mathf.Lerp(.12f, .72f, spinFactor) * accentDirection, -Mathf.Lerp(.08f, .42f, spinFactor) * accentDirection), spinTurns, roundYes);
                             physicsStarted[i] = true;
                         }
+                        // Drive the complete flip from the same local flight clock
+                        // for every disc.  The angle curve ends exactly at the
+                        // precomputed result, so landing does not start a second
+                        // correction phase or pause.
+                        float spinProgress = Mathf.InverseLerp(launchCueEnd, 1f, localP);
+                        item.SetDeterministicSpinProgress(spinProgress);
                         applyScriptedPose = false;
                         uniformScale = 1f + Mathf.Sin(flight * Mathf.PI) * .08f;
                     }
                     else
                     {
-                        // Choose the final face while the disc is still airborne.
-                        // This avoids showing one face on landing and then visibly
-                        // snapping to the pre-drawn result.
-                        float settle = (localP - .68f) / .32f;
-                        float damping = 1f - settle;
-                        float lane = value.SeriesLength <= 1 ? 1f : i - (value.SeriesLength - 1) * .5f;
-                        float correctionStartFlight = (.68f - .12f) / .74f;
-                        float correctionStartX = value.SeriesLength <= 1
-                            ? Mathf.Lerp(-70f, 95f, Mathf.SmoothStep(0f, 1f, correctionStartFlight))
-                            : Mathf.Lerp(-18f * lane, 28f * lane, Mathf.SmoothStep(0f, 1f, correctionStartFlight));
-                        float ballisticPhase = Mathf.Lerp(correctionStartFlight, 1f, Mathf.SmoothStep(0f, 1f, settle));
-                        float multiDiscHeightScale = value.SeriesLength == 1 ? 1f : value.SeriesLength == 3 ? .82f : .68f;
-                        float height = 4f * Mathf.Lerp(190f, 280f, holdFactor) * multiDiscHeightScale * ballisticPhase * (1f - ballisticPhase);
-                        float bounce = settle > .72f ? Mathf.Abs(Mathf.Sin((settle - .72f) / .28f * Mathf.PI)) * 14f * damping : 0f;
-                        travel = new Vector2(Mathf.Lerp(correctionStartX, 0f, Mathf.SmoothStep(0f, 1f, settle)), height + bounce);
+                        // Each disc completes its own correction independently,
+                        // including YES and NO faces in a staggered series.
+                        travel = Vector2.zero;
                         flipDegrees = tiltDegrees = rollDegrees = 0f;
-                        if (!resultCorrectionStarted[i])
-                        {
-                            item.BeginResultCorrection();
-                            resultCorrectionStarted[i] = true;
-                        }
-                        item.CorrectToResult(roundYes, settle);
+                        item.SetDeterministicSpinProgress(1f);
                         applyScriptedPose = false;
-                        float squash = Mathf.Sin(settle * Mathf.PI) * damping;
-                        uniformScale = 1f + .04f * squash;
+                        uniformScale = 1f;
                     }
 
                     if (applyScriptedPose) item.SetPose(flipDegrees, tiltDegrees, rollDegrees);
@@ -582,7 +707,12 @@ namespace DecisionDisc
             {
                 CoinRenderView item = throwDiscs[i]; item.RectTransform.anchoredPosition = throwDiscBasePositions[i]; item.RectTransform.localScale = Vector3.one;
                 bool roundYes = i < value.RoundResults.Length && value.RoundResults[i] == 'Y';
-                item.SetPose(roundYes ? 0f : 180f, 0f, 0f);
+                // Finish the same deterministic curve before releasing the view
+                // back to the idle state. There is deliberately no second
+                // landing-correction animation: it used to create the visible
+                // last-frame pause/reversal.
+                item.SetDeterministicSpinProgress(1f);
+                item.FinishDeterministicSpin();
                 throwDiscLabels[i].text = roundYes ? "YES" : "NO";
                 throwDiscLabels[i].color = roundYes ? Yes : No;
             }
@@ -593,6 +723,7 @@ namespace DecisionDisc
             savePromptTitle.text = (value.IsYes ? "YES" : "NO") + " · " + SeriesScore(value) + "\n每枚 YES 概率 " + Mathf.RoundToInt(value.YesProbabilityUsed * 100) + "% · 是否保存？";
             PopulateResultFaces(savePromptFaces, value, animationBadge);
             OpenModal(savePromptPanel);
+            throwRoutine = null;
         }
 
         private void SaveCurrent()
@@ -604,6 +735,7 @@ namespace DecisionDisc
             UserActionLog.Add("明确保存本次记录；结果=" + (pending.IsYes ? "YES" : "NO"));
             pending = null; CloseModal(savePromptPanel); ResetHomeVisuals();
             if (chargeButton != null) chargeButton.SetInteractable(true);
+            SetDecisionNavigationLocked(false);
             status.text = "本次记录已永久保存。"; RefreshHistory();
         }
 
@@ -614,6 +746,7 @@ namespace DecisionDisc
             CloseModal(savePromptPanel);
             ResetHomeVisuals();
             if (chargeButton != null) chargeButton.SetInteractable(true);
+            SetDecisionNavigationLocked(false);
             status.text = "本次结果已删除。";
             RefreshHistory();
         }
@@ -621,9 +754,9 @@ namespace DecisionDisc
         private void SelectSeries(int value)
         {
             seriesLength = value;
-            seriesText.text = "赛制：" + SeriesLabel(seriesLength) + "  ›";
+            seriesText.text = "投掷数量：" + SeriesLabel(seriesLength) + "  ›";
             CloseModal(seriesPanel);
-            UserActionLog.Add("切换赛制：" + SeriesLabel(seriesLength));
+            UserActionLog.Add("切换投掷数量：" + SeriesLabel(seriesLength));
         }
 
         private void CreateBadge()
@@ -719,7 +852,7 @@ namespace DecisionDisc
         {
             if (selectedBadgeText == null) return;
             BadgeDefinition badge = store.SelectedBadge();
-            selectedBadgeText.text = "使用中 · " + badge.name;
+            selectedBadgeText.text = "当前徽章：" + badge.name;
         }
 
         private void OpenBadgeDetail(BadgeDefinition badge)
@@ -808,25 +941,40 @@ namespace DecisionDisc
         {
             try
             {
-                if (pickingBackground)
-                {
-                    pickingBackground = false;
-                    store.CopyBackgroundImage(path);
-                    spriteCache.Clear();
-                    UserActionLog.Add("已保存自定义背景图");
-                    RebuildUiAtSettings();
-                    return;
-                }
-                if (imageTarget == null) throw new InvalidOperationException("没有正在编辑的徽章。");
+                bool backgroundCrop = pickingBackground;
+                pickingBackground = false;
+                if (!backgroundCrop && imageTarget == null) throw new InvalidOperationException("没有正在编辑的徽章。");
                 cropSourcePath = path;
                 Sprite sprite = LoadSprite(path);
                 if (sprite == null) throw new InvalidDataException("无法读取所选图片。");
+                croppingBackground = backgroundCrop;
                 cropPreview.sprite = sprite;
+                cropTitle.text = backgroundCrop ? "裁切竖屏背景" : "裁切圆形徽章";
+                cropHint.text = backgroundCrop
+                    ? "单指拖动图片 · 双指捏合缩放 · 方框内为最终背景"
+                    : "单指拖动图片 · 双指捏合缩放 · 圆圈内为最终徽章";
+                cropViewport.sprite = backgroundCrop ? softRectSprite : circleSprite;
+                cropViewport.preserveAspect = !backgroundCrop;
+                cropViewport.rectTransform.sizeDelta = backgroundCrop ? new Vector2(348f, 620f) : new Vector2(620f, 620f);
+                cropRing.gameObject.SetActive(!backgroundCrop);
                 OpenModal(cropPanel);
                 Canvas.ForceUpdateCanvases();
                 cropGesture.Configure(cropPreview.rectTransform, cropGesture.Viewport, sprite.texture.width, sprite.texture.height);
             }
-            catch (Exception exception) { badgeStatus.text = "图片保存失败：" + exception.Message; UserActionLog.Add("徽章图片保存失败：" + exception.Message); Debug.LogWarning(exception); }
+            catch (Exception exception)
+            {
+                string message = "图片读取失败：" + exception.Message;
+                if (croppingBackground || pickingBackground) backgroundStatus.text = message; else badgeStatus.text = message;
+                UserActionLog.Add(message); Debug.LogWarning(exception);
+                pickingBackground = false; croppingBackground = false;
+            }
+        }
+
+        private void CancelCrop()
+        {
+            croppingBackground = false;
+            cropSourcePath = null;
+            CloseModal(cropPanel);
         }
 
         private void RefreshHistory()
@@ -939,6 +1087,17 @@ namespace DecisionDisc
             try
             {
                 Vector2 offset = cropGesture.NormalizedOffset;
+                if (croppingBackground)
+                {
+                    store.CopyBackgroundImageCropped(cropSourcePath, cropGesture.Zoom, -offset.x, -offset.y);
+                    spriteCache.Clear();
+                    croppingBackground = false;
+                    cropSourcePath = null;
+                    CloseModal(cropPanel);
+                    UserActionLog.Add("裁切并保存竖屏背景图：720×1280");
+                    RebuildUiAtSettings();
+                    return;
+                }
                 store.CopyBadgeImage(imageTarget, imageTargetIsYes, cropSourcePath, cropGesture.Zoom, -offset.x, -offset.y);
                 InvalidateSprite(imageTargetIsYes ? imageTarget.yesImagePath : imageTarget.noImagePath);
                 CloseModal(cropPanel);
@@ -947,7 +1106,12 @@ namespace DecisionDisc
                 RefreshBadges(); RefreshHomeFaces();
                 if (detailBadge == imageTarget) RefreshBadgeDetailFaces();
             }
-            catch (Exception exception) { badgeStatus.text = "图片裁切失败：" + exception.Message; UserActionLog.Add("图片裁切失败：" + exception.Message); }
+            catch (Exception exception)
+            {
+                string message = "图片裁切失败：" + exception.Message;
+                if (croppingBackground) backgroundStatus.text = message; else badgeStatus.text = message;
+                UserActionLog.Add(message);
+            }
         }
 
         private void RefreshHomeFaces()
@@ -955,8 +1119,39 @@ namespace DecisionDisc
             if (homeFaces == null) return;
             Clear(homeFaces);
             BadgeDefinition badge = store.SelectedBadge();
-            AddFacePreview(homeFaces, badge, true, false);
-            AddFacePreview(homeFaces, badge, false, false);
+            RectTransform yesFace = AddCollisionFace(homeFaces, badge, true, new Vector2(-160f, 16f), -5.5f);
+            RectTransform noFace = AddCollisionFace(homeFaces, badge, false, new Vector2(160f, 16f), 5.5f);
+
+            if (homeCollisionMotion != null) homeCollisionMotion.Configure(yesFace, noFace, null);
+        }
+
+        private RectTransform AddCollisionFace(Transform parent, BadgeDefinition badge, bool yesFace, Vector2 position, float rotation)
+        {
+            RectTransform holder = Rect(yesFace ? "CollisionYES" : "CollisionNO", parent);
+            holder.anchorMin = holder.anchorMax = new Vector2(.5f, .5f);
+            holder.pivot = new Vector2(.5f, .5f);
+            holder.anchoredPosition = position;
+            holder.sizeDelta = new Vector2(390f, 430f);
+            holder.localRotation = Quaternion.Euler(0f, 0f, rotation);
+
+            Image glow = Image("BadgeGlow", holder, new Color(yesFace ? Yes.r : No.r, yesFace ? Yes.g : No.g, yesFace ? Yes.b : No.b, lightTheme ? .20f : .27f));
+            glow.sprite = circleSprite; glow.preserveAspect = true; glow.raycastTarget = false;
+            glow.rectTransform.anchorMin = glow.rectTransform.anchorMax = new Vector2(.5f, .5f);
+            glow.rectTransform.sizeDelta = new Vector2(350f, 350f);
+            glow.rectTransform.anchoredPosition = new Vector2(0f, 30f);
+            Shadow glowShadow = glow.gameObject.AddComponent<Shadow>(); glowShadow.effectColor = SurfaceShadow; glowShadow.effectDistance = new Vector2(0f, -10f);
+
+            string path = yesFace ? badge.yesImagePath : badge.noImagePath;
+            Sprite loaded = LoadSprite(path);
+            Image content = CircularFaceImage(yesFace ? "HomeYesFace" : "HomeNoFace", holder, loaded ?? DefaultFaceSprite(badge, yesFace));
+            RectTransform viewport = (RectTransform)content.transform.parent;
+            viewport.anchorMin = viewport.anchorMax = new Vector2(.5f, .5f);
+            viewport.pivot = new Vector2(.5f, .5f);
+            viewport.sizeDelta = new Vector2(326f, 326f);
+            viewport.anchoredPosition = new Vector2(0f, 30f);
+            Outline faceEdge = viewport.gameObject.AddComponent<Outline>(); faceEdge.effectColor = new Color(1f, 1f, 1f, .82f); faceEdge.effectDistance = new Vector2(3f, -3f);
+
+            return holder;
         }
 
         private void ResetHomeVisuals()
@@ -979,8 +1174,7 @@ namespace DecisionDisc
                 cellRect.anchorMin = cellRect.anchorMax = new Vector2(.5f, .5f);
                 cellRect.pivot = new Vector2(.5f, .5f);
                 float lane = count <= 1 ? 0f : i - (count - 1) * .5f;
-                float arcY = count <= 1 ? 0f : 28f - Mathf.Abs(lane) * (count == 3 ? 20f : 12f);
-                cellRect.anchoredPosition = new Vector2(lane * horizontalStep, arcY);
+                cellRect.anchoredPosition = new Vector2(lane * horizontalStep, 0f);
                 cellRect.sizeDelta = new Vector2(imageSize, imageSize + 54f);
                 VerticalLayoutGroup cellLayout = cell.GetComponent<VerticalLayoutGroup>();
                 cellLayout.childAlignment = TextAnchor.MiddleCenter; cellLayout.childForceExpandWidth = false;
@@ -1028,6 +1222,123 @@ namespace DecisionDisc
             RebuildUiAtSettings();
         }
 
+        private string InAppName()
+        {
+            return "决策勋章";
+        }
+
+        private void OnBackgroundOpacityChanged(float value)
+        {
+            float opacity = Mathf.Round(Mathf.Clamp01(value) * 100f) / 100f;
+            if (backgroundOpacityText != null)
+                backgroundOpacityText.text = "背景不透明度：" + Mathf.RoundToInt(opacity * 100f) + "%";
+            if (themeBackgroundImage != null)
+                themeBackgroundImage.color = new Color(1f, 1f, 1f, opacity);
+            if (themeBackgroundVeil != null)
+                themeBackgroundVeil.color = new Color(.97f, .99f, 1f, .08f * opacity);
+            if (customBackgroundImage != null)
+                customBackgroundImage.color = new Color(1f, 1f, 1f, opacity);
+            if (customBackgroundVeil != null)
+                customBackgroundVeil.color = new Color(.95f, .985f, 1f, .08f * opacity);
+            if (!Mathf.Approximately(store.Appearance.backgroundOpacity, opacity))
+                store.SetBackgroundOpacity(opacity);
+        }
+
+        private void OnUiPanelOpacityChanged(float value)
+        {
+            float opacity = Mathf.Round(Mathf.Clamp01(value) * 100f) / 100f;
+            if (uiPanelOpacityText != null)
+                uiPanelOpacityText.text = "界面底板不透明度：" + Mathf.RoundToInt(opacity * 100f) + "%";
+            uiPanelOpacity = opacity;
+            ApplyUiPanelOpacity(opacity);
+            if (!Mathf.Approximately(store.Appearance.uiPanelOpacity, opacity))
+                store.SetUiPanelOpacity(opacity);
+        }
+
+        private void ApplyButtonTextColor()
+        {
+            string raw = buttonTextColorInput == null ? string.Empty : buttonTextColorInput.text.Trim();
+            if (!raw.StartsWith("#")) raw = "#" + raw;
+            Color parsed;
+            if (raw.Length != 7 || !ColorUtility.TryParseHtmlString(raw, out parsed))
+            {
+                if (buttonTextColorStatus != null) buttonTextColorStatus.text = "颜色格式错误，请输入 6 位 HEX，例如 #283C59";
+                UserActionLog.Add("按钮文字颜色格式错误：" + raw);
+                return;
+            }
+            parsed.a = 1f;
+            string normalized = "#" + raw.Substring(1).ToUpperInvariant();
+            ButtonTextColor = parsed;
+            store.SetButtonTextColor(normalized);
+            if (buttonTextColorInput != null) buttonTextColorInput.text = normalized;
+            if (buttonTextColorStatus != null) buttonTextColorStatus.text = "按钮/蓄力文字颜色：" + normalized;
+            ApplyButtonTextColorToUi();
+            UserActionLog.Add("应用按钮/蓄力文字颜色：" + normalized);
+        }
+
+        private void ResetButtonTextColor()
+        {
+            const string defaultColor = "#283C59";
+            ButtonTextColor = Hex("283C59");
+            store.SetButtonTextColor(defaultColor);
+            if (buttonTextColorInput != null) buttonTextColorInput.text = defaultColor;
+            if (buttonTextColorStatus != null) buttonTextColorStatus.text = "按钮/蓄力文字颜色：" + defaultColor;
+            ApplyButtonTextColorToUi();
+            UserActionLog.Add("恢复默认按钮/蓄力文字颜色：" + defaultColor);
+        }
+
+        private void ApplyButtonTextColorToUi()
+        {
+            if (uiRoot != null)
+            {
+                Button[] buttons = uiRoot.GetComponentsInChildren<Button>(true);
+                for (int i = 0; i < buttons.Length; i++)
+                {
+                    Text[] labels = buttons[i].GetComponentsInChildren<Text>(true);
+                    for (int j = 0; j < labels.Length; j++) labels[j].color = ButtonTextColor;
+                }
+            }
+            if (chargeButton != null && chargeButton.Label != null)
+                chargeButton.Label.color = ButtonTextColor;
+        }
+
+        private static void ApplyUiPanelOpacity(float opacity)
+        {
+            opacity = Mathf.Clamp01(opacity);
+            for (int i = uiPanelOpacityTargets.Count - 1; i >= 0; i--)
+            {
+                UiPanelOpacityEntry entry = uiPanelOpacityTargets[i];
+                if (entry == null || entry.image == null)
+                {
+                    uiPanelOpacityTargets.RemoveAt(i);
+                    continue;
+                }
+                Color color = entry.baseColor;
+                color.a = entry.baseColor.a * opacity;
+                entry.image.color = color;
+            }
+        }
+
+        private static void RegisterPanelOpacity(Image image)
+        {
+            if (image == null) return;
+            for (int i = 0; i < uiPanelOpacityTargets.Count; i++)
+                if (uiPanelOpacityTargets[i].image == image) return;
+            uiPanelOpacityTargets.Add(new UiPanelOpacityEntry { image = image, baseColor = image.color });
+        }
+
+        private static void RefreshPanelOpacityBase(Image image)
+        {
+            if (image == null) return;
+            for (int i = 0; i < uiPanelOpacityTargets.Count; i++)
+            {
+                if (uiPanelOpacityTargets[i].image != image) continue;
+                uiPanelOpacityTargets[i].baseColor = image.color;
+                return;
+            }
+            RegisterPanelOpacity(image);
+        }
+
         private void RebuildUiAtSettings()
         {
             if (uiRoot != null) { uiRoot.SetActive(false); Destroy(uiRoot); }
@@ -1037,13 +1348,14 @@ namespace DecisionDisc
 
         private void ApplyThemePalette()
         {
-            Background = lightTheme ? Hex("EDF8FF") : Hex("0C1523");
-            Panel = lightTheme ? new Color(.975f, .99f, 1f, .91f) : new Color(.09f, .14f, .22f, .94f);
-            Accent = lightTheme ? Hex("27B7D6") : Hex("52D5E7");
-            Yes = lightTheme ? Hex("20BFA9") : Hex("42D9BD");
-            No = lightTheme ? Hex("F46F81") : Hex("FF8294");
-            PrimaryText = lightTheme ? Hex("17334A") : Hex("F4FBFF");
-            SecondaryText = lightTheme ? Hex("648096") : Hex("9CB5C7");
+            Background = lightTheme ? Hex("F4FAFF") : Hex("111D30");
+            Panel = lightTheme ? new Color(1f, 1f, 1f, .94f) : new Color(.10f, .16f, .25f, .96f);
+            Accent = lightTheme ? Hex("4FB7E8") : Hex("72CBF2");
+            Yes = lightTheme ? Hex("43C9B8") : Hex("69DDCE");
+            No = lightTheme ? Hex("F07F9B") : Hex("F59AB0");
+            PrimaryText = lightTheme ? Hex("283C59") : Hex("F5FAFF");
+            SecondaryText = lightTheme ? Hex("71849C") : Hex("AFC1D4");
+            SurfaceShadow = lightTheme ? new Color(.18f, .42f, .62f, .14f) : new Color(0f, 0f, 0f, .32f);
         }
 
         private void PreviewImport(string json)
@@ -1090,6 +1402,13 @@ namespace DecisionDisc
             Mask mask = viewport.gameObject.AddComponent<Mask>();
             mask.showMaskGraphic = false;
 
+            // User-supplied PNG files are often transparent.  A neutral white circular
+            // backing keeps those faces readable and prevents the page artwork from
+            // becoming part of the badge image.
+            Image backing = Image(name + "WhiteBacking", viewport.transform, Color.white);
+            backing.raycastTarget = false;
+            Stretch(backing.rectTransform);
+
             Image content = Image(name, viewport.transform, Color.white);
             content.sprite = sprite;
             content.preserveAspect = true;
@@ -1120,7 +1439,7 @@ namespace DecisionDisc
         }
 
         private static string ModeLabel(DecisionMode value) { return value == DecisionMode.Fair5050 ? "固定 50 / 50" : "徽章概率"; }
-        private static string SeriesLabel(int value) { return value == 3 ? "3 局 2 胜" : value == 5 ? "5 局 3 胜" : "1 次决定"; }
+        private static string SeriesLabel(int value) { return value == 3 ? "3 枚" : value == 5 ? "5 枚" : "1 枚"; }
         private static string SeriesScore(PendingDecision value) { return value.SeriesLength <= 1 ? "单次决定" : "比分 " + value.YesWins + ":" + value.NoWins; }
         private static string StoredModeLabel(string value) { return value == DecisionMode.Fair5050.ToString() ? "固定 50 / 50" : "徽章概率"; }
         private static string StrengthSourceLabel(string value)
@@ -1226,11 +1545,24 @@ namespace DecisionDisc
 
         private void ShowPage(int index)
         {
+            // A decision belongs to the result sheet until it is explicitly saved or
+            // discarded.  Do not let bottom navigation reveal another page underneath it.
+            if (pending != null)
+            {
+                UserActionLog.Add("投掷结果待确认，已忽略页面切换");
+                return;
+            }
             for (int i = 0; i < pages.Count; i++) pages[i].SetActive(i == index);
             string[] labels = { "投掷", "徽章", "记录", "设置" };
             UserActionLog.Add("切换页面：" + labels[Mathf.Clamp(index, 0, labels.Length - 1)]);
             if (index == 1) RefreshBadges(); if (index == 2) RefreshHistory();
             if (index == 3) RefreshLogPreview();
+        }
+
+        private void SetDecisionNavigationLocked(bool locked)
+        {
+            foreach (Button navigation in navigationButtons)
+                if (navigation != null) navigation.interactable = !locked;
         }
 
         private static GameObject Page(string name, Transform parent)
@@ -1264,8 +1596,10 @@ namespace DecisionDisc
         private static Transform VerticalCard(string name, Transform parent, float height)
         {
             var card = Image(name, parent, Panel); SetHeight(card.rectTransform, height);
+            RegisterPanelOpacity(card);
             card.sprite = softRectSprite; card.type = UnityEngine.UI.Image.Type.Sliced;
-            Outline edge = card.gameObject.AddComponent<Outline>(); edge.effectColor = lightTheme ? new Color(.25f, .71f, .85f, .20f) : new Color(.35f, .82f, .9f, .18f); edge.effectDistance = new Vector2(1.5f, -1.5f);
+            Outline edge = card.gameObject.AddComponent<Outline>(); edge.effectColor = lightTheme ? new Color(.31f, .72f, .91f, .32f) : new Color(.45f, .77f, .95f, .24f); edge.effectDistance = new Vector2(1f, -1f);
+            Shadow shadow = card.gameObject.AddComponent<Shadow>(); shadow.effectColor = SurfaceShadow; shadow.effectDistance = new Vector2(0f, -5f);
             var layout = card.gameObject.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(24, 24, 14, 14); layout.spacing = 8; layout.childForceExpandHeight = false;
             return card.transform;
         }
@@ -1278,9 +1612,15 @@ namespace DecisionDisc
 
         private static InputField Input(string placeholder, Transform parent, float height, bool multiline)
         {
-            var root = Image("Input", parent, Panel); SetHeight(root.rectTransform, height);
+            Color surfaceColor = lightTheme ? Hex("FBFDFF") : Panel;
+            var root = Image("Input", parent, new Color(Accent.r, Accent.g, Accent.b, lightTheme ? .52f : .72f)); SetHeight(root.rectTransform, height);
+            RegisterPanelOpacity(root);
             root.sprite = softRectSprite; root.type = UnityEngine.UI.Image.Type.Sliced;
-            Outline edge = root.gameObject.AddComponent<Outline>(); edge.effectColor = new Color(Accent.r, Accent.g, Accent.b, .22f); edge.effectDistance = new Vector2(1.5f, -1.5f);
+            Image surface = Image("InputSurface", root.transform, surfaceColor);
+            RegisterPanelOpacity(surface);
+            surface.sprite = softRectSprite; surface.type = UnityEngine.UI.Image.Type.Sliced;
+            surface.raycastTarget = false;
+            Stretch(surface.rectTransform, 2, 2, 2, 2);
             var field = root.gameObject.AddComponent<InputField>(); field.lineType = multiline ? InputField.LineType.MultiLineNewline : InputField.LineType.SingleLine;
             Text value = Label("", root.transform, 30, TextAnchor.MiddleLeft, PrimaryText); Stretch(value.rectTransform, 24, 10, 24, 10);
             Text hint = Label(placeholder, root.transform, 28, TextAnchor.MiddleLeft, Hex("667085")); Stretch(hint.rectTransform, 24, 10, 24, 10);
@@ -1290,28 +1630,39 @@ namespace DecisionDisc
         private static InputField NoteInput(string placeholder, Transform parent, float height)
         {
             InputField field = Input(placeholder, parent, height, false);
-            Image background = field.GetComponent<Image>(); background.color = lightTheme ? Hex("EEF6FF") : Hex("26364A");
-            Outline outline = field.gameObject.AddComponent<Outline>(); outline.effectColor = Accent; outline.effectDistance = new Vector2(2, -2);
+            Transform surfaceTransform = field.transform.Find("InputSurface");
+            if (surfaceTransform != null)
+            {
+                Image background = surfaceTransform.GetComponent<Image>();
+                if (background != null) { background.color = lightTheme ? Hex("EEF6FF") : Hex("26364A"); RefreshPanelOpacityBase(background); }
+            }
             return field;
         }
 
         private static Button Button(string name, Transform parent, string value, UnityEngine.Events.UnityAction action, Color color, float height)
         {
             var image = Image(name, parent, color); SetHeight(image.rectTransform, height);
+            RegisterPanelOpacity(image);
             image.sprite = softRectSprite; image.type = UnityEngine.UI.Image.Type.Sliced;
-            Outline edge = image.gameObject.AddComponent<Outline>(); edge.effectColor = Approximately(color, Panel) ? new Color(Accent.r, Accent.g, Accent.b, .24f) : new Color(1f, 1f, 1f, .28f); edge.effectDistance = new Vector2(1.5f, -1.5f);
+            bool isSurfaceButton = Approximately(color, Panel);
+            Outline edge = image.gameObject.AddComponent<Outline>(); edge.effectColor = isSurfaceButton ? new Color(Accent.r, Accent.g, Accent.b, .32f) : new Color(1f, 1f, 1f, .38f); edge.effectDistance = new Vector2(1f, -1f);
+            Shadow shadow = image.gameObject.AddComponent<Shadow>(); shadow.effectColor = isSurfaceButton ? SurfaceShadow : new Color(color.r * .55f, color.g * .48f, color.b * .65f, .30f); shadow.effectDistance = new Vector2(0f, -5f);
             var button = image.gameObject.AddComponent<Button>(); button.targetGraphic = image; button.onClick.AddListener(action);
-            ColorBlock colors = button.colors; colors.normalColor = Color.white; colors.highlightedColor = new Color(1.04f, 1.04f, 1.04f, 1f); colors.pressedColor = new Color(.88f, .94f, .98f, 1f); colors.fadeDuration = .10f; button.colors = colors;
-            Text label = Label(value, image.transform, 26, TextAnchor.MiddleCenter, Approximately(color, Panel) ? PrimaryText : Color.white); Stretch(label.rectTransform, 8, 4, 8, 4); return button;
+            ColorBlock colors = button.colors; colors.normalColor = Color.white; colors.highlightedColor = Color.white; colors.pressedColor = Color.white; colors.selectedColor = Color.white; colors.fadeDuration = .10f; button.colors = colors;
+            image.gameObject.AddComponent<SoftPressFeedback>();
+            Text label = Label(value, image.transform, 26, TextAnchor.MiddleCenter, ButtonTextColor); Stretch(label.rectTransform, 8, 4, 8, 4); return button;
         }
 
         private Slider SliderControl(string name, Transform parent, float min, float max, UnityEngine.Events.UnityAction<float> changed)
         {
-            Image root = Image(name, parent, lightTheme ? Hex("EEF2F6") : Hex("243244")); SetHeight(root.rectTransform, 84);
+            // Keep the slider container transparent. The track itself is the only
+            // background; a full-width panel behind it made the opacity controls
+            // look like large gray cards.
+            Image root = Image(name, parent, Color.clear); SetHeight(root.rectTransform, 84); root.raycastTarget = true;
             RectTransform track = Rect("Track", root.transform); track.anchorMin = new Vector2(.08f, .5f); track.anchorMax = new Vector2(.92f, .5f); track.sizeDelta = new Vector2(0, 16);
-            Image trackImage = track.gameObject.AddComponent<Image>(); trackImage.color = lightTheme ? Hex("CAD5E2") : Hex("475467");
+            Image trackImage = track.gameObject.AddComponent<Image>(); trackImage.color = lightTheme ? Hex("CAD5E2") : Hex("475467"); trackImage.raycastTarget = false;
             RectTransform fillArea = Rect("FillArea", root.transform); fillArea.anchorMin = new Vector2(.08f, .5f); fillArea.anchorMax = new Vector2(.92f, .5f); fillArea.sizeDelta = new Vector2(0, 16);
-            Image fill = Image("Fill", fillArea, Accent); Stretch(fill.rectTransform);
+            Image fill = Image("Fill", fillArea, Accent); Stretch(fill.rectTransform); fill.raycastTarget = false;
             RectTransform handleArea = Rect("HandleArea", root.transform); handleArea.anchorMin = new Vector2(.08f, 0); handleArea.anchorMax = new Vector2(.92f, 1); handleArea.offsetMin = Vector2.zero; handleArea.offsetMax = Vector2.zero;
             Image handle = Image("Handle", handleArea, Color.white); handle.sprite = circleSprite; handle.preserveAspect = true; handle.rectTransform.sizeDelta = new Vector2(52, 52);
             Outline outline = handle.gameObject.AddComponent<Outline>(); outline.effectColor = Accent; outline.effectDistance = new Vector2(3, -3);
@@ -1328,8 +1679,10 @@ namespace DecisionDisc
         private static Transform HorizontalCard(string name, Transform parent, float height)
         {
             Image root = Image(name, parent, Panel); SetHeight(root.rectTransform, height);
+            RegisterPanelOpacity(root);
             root.sprite = softRectSprite; root.type = UnityEngine.UI.Image.Type.Sliced;
-            Outline edge = root.gameObject.AddComponent<Outline>(); edge.effectColor = new Color(Accent.r, Accent.g, Accent.b, .20f); edge.effectDistance = new Vector2(1.5f, -1.5f);
+            Outline edge = root.gameObject.AddComponent<Outline>(); edge.effectColor = new Color(Accent.r, Accent.g, Accent.b, .28f); edge.effectDistance = new Vector2(1f, -1f);
+            Shadow shadow = root.gameObject.AddComponent<Shadow>(); shadow.effectColor = SurfaceShadow; shadow.effectDistance = new Vector2(0f, -5f);
             var layout = root.gameObject.AddComponent<HorizontalLayoutGroup>();
             layout.padding = new RectOffset(24, 24, 18, 18); layout.spacing = 16;
             layout.childControlHeight = true; layout.childControlWidth = true; layout.childForceExpandWidth = false; layout.childForceExpandHeight = true;
@@ -1367,6 +1720,12 @@ namespace DecisionDisc
         private static void Clear(Transform parent) { for (int i = parent.childCount - 1; i >= 0; i--) { GameObject child = parent.GetChild(i).gameObject; child.SetActive(false); Destroy(child); } }
         private static string Present(string path) { return string.IsNullOrEmpty(path) || !File.Exists(path) ? "默认文字面" : Path.GetFileName(path) + "（应用内部副本）"; }
         private static Color Hex(string hex) { ColorUtility.TryParseHtmlString("#" + hex, out Color result); return result; }
+        private static Color ParseHexColor(string value, Color fallback)
+        {
+            if (string.IsNullOrEmpty(value)) return fallback;
+            string raw = value.StartsWith("#") ? value : "#" + value;
+            return raw.Length == 7 && ColorUtility.TryParseHtmlString(raw, out Color result) ? result : fallback;
+        }
         private static bool Approximately(Color a, Color b) { return Mathf.Abs(a.r - b.r) < .001f && Mathf.Abs(a.g - b.g) < .001f && Mathf.Abs(a.b - b.b) < .001f && Mathf.Abs(a.a - b.a) < .001f; }
 
         private Sprite LoadSprite(string path)

@@ -2,9 +2,9 @@
 
 一个隐私优先的 Android YES/NO 决策应用。输入一个问题，按住蓄力并松开，即可投掷双面徽章获得结果。
 
-当前版本：`1.4.0`（`versionCode 16`）
+当前版本：`1.4.7`（`versionCode 18`）
 
-[下载最新 APK](https://github.com/MingSDzzz/YesNoFilp/releases/download/v1.4.0/YesNoFilp-v1.4.0.apk) · [查看版本说明](https://github.com/MingSDzzz/YesNoFilp/releases/tag/v1.4.0)
+[下载最新 APK](https://github.com/MingSDzzz/YesNoFilp/releases/download/v1.4.7/YesNoFilp-v1.4.7.apk) · [查看版本说明](https://github.com/MingSDzzz/YesNoFilp/releases/tag/v1.4.7)
 
 ## 使用演示
 
@@ -27,6 +27,7 @@
 - 支持单次决定、3 局 2 胜和 5 局 3 胜，多局模式会同时展示多枚徽章。
 - 投掷结束后选择是否保存；历史记录支持备注、筛选和单独删除。
 - 已保存记录支持带版本号的 JSON 导入与导出，导入前可预览并选择合并或替换。
+- 支持上传并裁切竖屏背景图；设置页可分别调节背景图片和界面底板的不透明度。
 - 提供日间与夜间主题，适配 Android 竖屏、刘海屏和安全区域。
 
 ## 基本使用
