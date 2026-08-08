@@ -125,6 +125,11 @@ namespace DecisionDisc
         private void Awake()
         {
             DontDestroyOnLoad(gameObject);
+            // Allow high-refresh Android devices to render the UI/throw animation
+            // at up to 120 FPS.  The device panel still determines the real cap
+            // (a 60 Hz emulator cannot display more than 60 frames per second).
+            Application.targetFrameRate = 120;
+            QualitySettings.vSyncCount = 0;
             Application.logMessageReceived += CaptureUnityError;
             Screen.orientation = ScreenOrientation.Portrait;
             UnityEngine.Input.multiTouchEnabled = true;
@@ -600,7 +605,10 @@ namespace DecisionDisc
             float holdFactor = Mathf.InverseLerp(0f, 3f, Mathf.Clamp(pendingHoldSeconds, 0f, 3f));
             // Even a short press gets a readable, weighty throw. Longer presses still
             // travel higher and extend the full motion, capped at three seconds.
-            float duration = Mathf.Lerp(1.05f, 2.25f, Mathf.SmoothStep(0f, 1f, holdFactor));
+            // Keep the same turn budget, but give the motion more time to read as
+            // a throw instead of a fast flip.  The press is still capped at 3 s;
+            // this only lengthens the airborne animation.
+            float duration = Mathf.Lerp(1.55f, 3.05f, Mathf.SmoothStep(0f, 1f, holdFactor));
             BadgeDefinition animationBadge = store.Badges.badges.Find(item => item.id == value.BadgeId) ?? store.SelectedBadge();
             if (homeCollisionMotion != null) yield return homeCollisionMotion.PlayRelease();
             PrepareThrowDiscs(value.SeriesLength, animationBadge);
@@ -608,10 +616,13 @@ namespace DecisionDisc
             throwDiscBasePositions.Clear();
             for (int i = 0; i < throwDiscs.Count; i++) throwDiscBasePositions.Add(throwDiscs[i].RectTransform.anchoredPosition);
             bool[] physicsStarted = new bool[throwDiscs.Count];
-            bool[] resultCorrectionStarted = new bool[throwDiscs.Count];
             status.text = "投掷中…";
             float staggerSeconds = value.SeriesLength <= 1 ? 0f : duration * .045f;
             float totalDuration = duration + staggerSeconds * Mathf.Max(0, throwDiscs.Count - 1);
+            float spinTurns = Mathf.Lerp(3f, 10f, holdFactor * holdFactor);
+            float rotationalSeconds = Mathf.Max(.1f, duration * .70f);
+            const float launchCueEnd = .08f;
+            const float landingStart = .78f;
             for (float t = 0; t < totalDuration; t += Time.unscaledDeltaTime)
             {
                 for (int i = 0; i < throwDiscs.Count; i++)
@@ -628,75 +639,62 @@ namespace DecisionDisc
                     bool applyScriptedPose = true;
                     bool roundYes = i < value.RoundResults.Length && value.RoundResults[i] == 'Y';
 
-                    if (localP < .12f)
+                    if (localP < launchCueEnd)
                     {
-                        float anticipation = Mathf.SmoothStep(0f, 1f, localP / .12f);
+                        float anticipation = Mathf.SmoothStep(0f, 1f, localP / launchCueEnd);
                         // A compact downward compression gives the launch weight without
                         // the old diagonal "slide away" that made a single coin look lost.
-                        travel = new Vector2(0f, -24f) * anticipation;
-                        flipDegrees = -22f * anticipation;
-                        tiltDegrees = 8f * anticipation;
-                        rollDegrees = -6f * anticipation;
-                        uniformScale = 1f - .05f * anticipation;
+                        travel = new Vector2(0f, -10f * Mathf.Sin(anticipation * Mathf.PI));
+                        flipDegrees = -14f * anticipation;
+                        tiltDegrees = 6f * anticipation;
+                        rollDegrees = -4f * anticipation;
+                        uniformScale = 1f - .035f * anticipation;
                     }
-                    else if (localP < .68f)
+                    else if (localP < 1f)
                     {
-                        float flight = (localP - .12f) / .74f;
+                        float flight = Mathf.InverseLerp(launchCueEnd, 1f, localP);
                         // Physically valid ballistic arc: y = 4H*t*(1-t), equivalent
                         // to an initial upward velocity followed by constant gravity.
                         float height = 4f * Mathf.Lerp(135f, 215f, holdFactor) * flight * (1f - flight);
-                        float sideways = Mathf.Lerp(-10f, 18f, Mathf.SmoothStep(0f, 1f, flight));
-                        travel = new Vector2(sideways, height);
+                        float flightX = Mathf.Lerp(0f, 18f, Mathf.SmoothStep(0f, 1f, flight));
+                        float landing = Mathf.InverseLerp(landingStart, 1f, localP);
+                        float sideways = landing <= 0f ? flightX : Mathf.Lerp(flightX, 0f, Mathf.SmoothStep(0f, 1f, landing));
+                        float landingBounce = landing > .72f ? Mathf.Sin(Mathf.InverseLerp(.72f, 1f, landing) * Mathf.PI) * 5f * (1f - landing) : 0f;
+                        travel = new Vector2(sideways, height + landingBounce);
                         flipDegrees = tiltDegrees = rollDegrees = 0f;
                         if (!physicsStarted[i])
                         {
-                            // Rotation should match the visible charge gauge. Device pressure
-                            // is still measured and recorded, but must not make a half charge
-                            // unexpectedly look like a full-power throw.
+                            // Multi-disc throws use exactly the same physical spin
+                            // parameters as a single disc. Only the launch time is
+                            // staggered, so adding discs does not reduce rotations.
                             float spinFactor = holdFactor;
-                            // The airborne interval occupies .56 of the throw.  Convert the
-                            // requested 3–10 full flips into an angular velocity so every
-                            // charge has a clearly visible, deliberate number of rotations.
-                            float rotationalSeconds = Mathf.Max(.1f, duration * .70f);
-                            // Ease the turn count upward: 0% = 3, 50% = 4.75, 100% = 10.
-                            // This preserves the requested endpoints without making ordinary
-                            // mid-strength throws feel nearly as frantic as a full charge.
-                            float turns = Mathf.Lerp(3f, 10f, spinFactor * spinFactor);
-                            float spin = turns * Mathf.PI * 2f / rotationalSeconds;
-                            float spinDirection = value.SeriesLength <= 1 || i % 2 == 0 ? 1f : -1f;
-                            item.BeginPhysicsSpin(new Vector3(spin * spinDirection, Mathf.Lerp(.12f, .72f, spinFactor) * spinDirection, -Mathf.Lerp(.08f, .42f, spinFactor) * spinDirection), turns);
+                            float spin = spinTurns * Mathf.PI * 2f / rotationalSeconds;
+                            // Keep the face-flip axis identical to a single disc.
+                            // Alternate only the secondary tilt/roll axes so the
+                            // series still feels staggered without losing visible
+                            // YES/NO revolutions on the middle disc.
+                            float accentDirection = value.SeriesLength <= 1 || i % 2 == 0 ? 1f : -1f;
+                            item.BeginPhysicsSpin(new Vector3(spin, Mathf.Lerp(.12f, .72f, spinFactor) * accentDirection, -Mathf.Lerp(.08f, .42f, spinFactor) * accentDirection), spinTurns, roundYes);
                             physicsStarted[i] = true;
                         }
-                        float normalizedFlight = Mathf.Clamp01(flight / ((.68f - .12f) / .74f));
-                        float speedUp = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, .18f, normalizedFlight));
-                        item.SetPhysicsSpinMultiplier(speedUp);
+                        // Drive the complete flip from the same local flight clock
+                        // for every disc.  The angle curve ends exactly at the
+                        // precomputed result, so landing does not start a second
+                        // correction phase or pause.
+                        float spinProgress = Mathf.InverseLerp(launchCueEnd, 1f, localP);
+                        item.SetDeterministicSpinProgress(spinProgress);
                         applyScriptedPose = false;
                         uniformScale = 1f + Mathf.Sin(flight * Mathf.PI) * .08f;
                     }
                     else
                     {
-                        // Choose the final face while the disc is still airborne.
-                        // This avoids showing one face on landing and then visibly
-                        // snapping to the pre-drawn result.
-                        float settle = (localP - .68f) / .32f;
-                        float damping = 1f - settle;
-                        float correctionStartFlight = (.68f - .12f) / .74f;
-                        float correctionStartX = Mathf.Lerp(-10f, 18f, Mathf.SmoothStep(0f, 1f, correctionStartFlight));
-                        float ballisticPhase = Mathf.Lerp(correctionStartFlight, 1f, Mathf.SmoothStep(0f, 1f, settle));
-                        float height = 4f * Mathf.Lerp(135f, 215f, holdFactor) * ballisticPhase * (1f - ballisticPhase);
-                        float bounce = settle > .72f ? Mathf.Abs(Mathf.Sin((settle - .72f) / .28f * Mathf.PI)) * 14f * damping : 0f;
-                        travel = new Vector2(Mathf.Lerp(correctionStartX, 0f, Mathf.SmoothStep(0f, 1f, settle)), height + bounce);
+                        // Each disc completes its own correction independently,
+                        // including YES and NO faces in a staggered series.
+                        travel = Vector2.zero;
                         flipDegrees = tiltDegrees = rollDegrees = 0f;
-                        if (!resultCorrectionStarted[i])
-                        {
-                            float correctionSeconds = duration * .32f;
-                            item.BeginResultCorrection(roundYes, correctionSeconds);
-                            resultCorrectionStarted[i] = true;
-                        }
-                        item.CorrectToResult(settle);
+                        item.SetDeterministicSpinProgress(1f);
                         applyScriptedPose = false;
-                        float squash = Mathf.Sin(settle * Mathf.PI) * damping;
-                        uniformScale = 1f + .04f * squash;
+                        uniformScale = 1f;
                     }
 
                     if (applyScriptedPose) item.SetPose(flipDegrees, tiltDegrees, rollDegrees);
@@ -709,7 +707,12 @@ namespace DecisionDisc
             {
                 CoinRenderView item = throwDiscs[i]; item.RectTransform.anchoredPosition = throwDiscBasePositions[i]; item.RectTransform.localScale = Vector3.one;
                 bool roundYes = i < value.RoundResults.Length && value.RoundResults[i] == 'Y';
-                item.SetPose(roundYes ? 0f : 180f, 0f, 0f);
+                // Finish the same deterministic curve before releasing the view
+                // back to the idle state. There is deliberately no second
+                // landing-correction animation: it used to create the visible
+                // last-frame pause/reversal.
+                item.SetDeterministicSpinProgress(1f);
+                item.FinishDeterministicSpin();
                 throwDiscLabels[i].text = roundYes ? "YES" : "NO";
                 throwDiscLabels[i].color = roundYes ? Yes : No;
             }

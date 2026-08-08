@@ -28,6 +28,10 @@ namespace DecisionDisc
         private float spinAccumulatedDegrees;
         private float plannedSpinTurns;
         private float plannedSpinDirection;
+        private bool plannedResultReady;
+        private float plannedResultTargetFlip;
+        private bool deterministicSpinActive;
+        private float deterministicFlip;
 
         public RectTransform RectTransform => (RectTransform)transform;
 
@@ -65,8 +69,14 @@ namespace DecisionDisc
             collider.convex = true;
             body = coin.AddComponent<Rigidbody>();
             body.useGravity = false;
+            // The body is kept for the coin's 3D mesh/collider, but the visible
+            // flip angle is driven explicitly below.  Interpolation must stay off:
+            // Unity otherwise picks the shortest quaternion arc, which is most
+            // obvious when the NO face lands.
+            // Letting Rigidbody integrate the X rotation made the final face
+            // depend on FixedUpdate timing and caused a backwards correction.
             body.isKinematic = true;
-            body.interpolation = RigidbodyInterpolation.Interpolate;
+            body.interpolation = RigidbodyInterpolation.None;
             body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
             body.constraints = RigidbodyConstraints.FreezePosition;
             // Ten visible flips can require a higher short-burst angular velocity on
@@ -126,23 +136,62 @@ namespace DecisionDisc
             ApplyKinematicRotation(Quaternion.Euler(flipDegrees, yawDegrees, rollDegrees));
         }
 
-        public void BeginPhysicsSpin(Vector3 angularVelocity, float turns = 0f)
+        public void BeginPhysicsSpin(Vector3 angularVelocity, float turns = 0f, bool yes = true)
         {
             if (body == null) return;
-            body.isKinematic = false;
+            // Keep the Rigidbody kinematic.  The throw path still uses this view's
+            // Rigidbody for the 3D coin object, but the flip angle itself must be
+            // deterministic so one, three and five discs share the same motion.
+            body.isKinematic = true;
             plannedAngularVelocity = angularVelocity;
-            body.angularVelocity = Vector3.zero;
             spinStartFlipUnwrapped = SignedDegrees(coin == null ? 0f : coin.transform.localEulerAngles.x);
             spinAccumulatedDegrees = 0f;
             plannedSpinTurns = Mathf.Max(0f, turns);
             plannedSpinDirection = Mathf.Sign(angularVelocity.x);
+            plannedResultReady = plannedSpinTurns > .01f && Mathf.Abs(plannedSpinDirection) > .01f;
+            plannedResultTargetFlip = plannedResultReady
+                ? FaceAlignedTarget(spinStartFlipUnwrapped, plannedSpinDirection, plannedSpinTurns, yes ? 0f : 180f)
+                : (yes ? 0f : 180f);
+            deterministicSpinActive = plannedResultReady;
+            deterministicFlip = spinStartFlipUnwrapped;
         }
 
         public void SetPhysicsSpinMultiplier(float multiplier)
         {
-            if (body == null || body.isKinematic) return;
-            body.angularVelocity = plannedAngularVelocity * Mathf.Clamp01(multiplier);
-            spinAccumulatedDegrees += body.angularVelocity.x * Mathf.Rad2Deg * Time.unscaledDeltaTime;
+            // Kept as a compatibility shim for older callers.  Rotation is now
+            // advanced through SetDeterministicSpinProgress, never by Rigidbody.
+        }
+
+        public void SetDeterministicSpinProgress(float progress)
+        {
+            if (coin == null || !deterministicSpinActive) return;
+            float p = Mathf.Clamp01(progress);
+            float eased = EaseInOutQuad(p);
+            // One continuous curve carries the disc all the way to the locked
+            // result angle.  Splitting the last few percent into a second
+            // correction phase caused the visible landing pause.
+            deterministicFlip = Mathf.Lerp(spinStartFlipUnwrapped, plannedResultTargetFlip, eased);
+            spinAccumulatedDegrees = deterministicFlip - spinStartFlipUnwrapped;
+
+            // Preserve a small amount of the old 3D wobble without allowing the
+            // secondary axes to affect which face wins.  Both ends ease back to a
+            // level landing pose.
+            float wobble = Mathf.Sin(p * Mathf.PI);
+            float yaw = wobble * plannedAngularVelocity.y * Mathf.Rad2Deg * .12f;
+            float roll = wobble * plannedAngularVelocity.z * Mathf.Rad2Deg * .12f;
+            ApplyKinematicRotation(Quaternion.Euler(deterministicFlip, yaw, roll));
+        }
+
+        /// <summary>
+        /// Ends the already-computed spin without starting a second correction
+        /// animation. The caller must first submit progress=1 so the final pose
+        /// is exactly the precomputed YES/NO face.
+        /// </summary>
+        public void FinishDeterministicSpin()
+        {
+            deterministicSpinActive = false;
+            plannedAngularVelocity = Vector3.zero;
+            if (body != null) body.isKinematic = true;
         }
 
         public void BeginResultCorrection(bool yes, float duration)
@@ -154,43 +203,26 @@ namespace DecisionDisc
 
             float faceAngle = yes ? 0f : 180f;
             float wrappedStart = correctionStartEuler.x;
-            float estimatedStart = spinStartFlipUnwrapped + spinAccumulatedDegrees;
-            correctionStartFlipUnwrapped = wrappedStart + 360f * Mathf.Round((estimatedStart - wrappedStart) / 360f);
-            float predictedStop = correctionStartFlipUnwrapped + correctionStartVelocityDegrees.x * correctionDuration * .5f;
-            correctionTargetFlip = faceAngle + Mathf.Round((predictedStop - faceAngle) / 360f) * 360f;
-            if (correctionStartVelocityDegrees.x > 1f && correctionTargetFlip < correctionStartFlipUnwrapped + 45f)
-                correctionTargetFlip += 360f;
-            else if (correctionStartVelocityDegrees.x < -1f && correctionTargetFlip > correctionStartFlipUnwrapped - 45f)
-                correctionTargetFlip -= 360f;
-
-            if (plannedSpinTurns > .01f && Mathf.Abs(plannedSpinDirection) > .01f)
+            correctionStartFlipUnwrapped = deterministicSpinActive
+                ? deterministicFlip
+                : wrappedStart + 360f * Mathf.Round((spinStartFlipUnwrapped + spinAccumulatedDegrees - wrappedStart) / 360f);
+            if (plannedResultReady)
             {
-                float direction = plannedSpinDirection;
-                float minimumFlip = spinStartFlipUnwrapped + direction * plannedSpinTurns * 360f;
-                // Use the planned turn budget as the landing target instead of
-                // extrapolating the current Rigidbody velocity.  The latter can
-                // add one or two accidental extra revolutions, especially when
-                // several discs are being corrected on staggered frames.
-                float baseFlip = direction > 0f ? Mathf.Max(minimumFlip, correctionStartFlipUnwrapped) : Mathf.Min(minimumFlip, correctionStartFlipUnwrapped);
-                if (direction > 0f)
-                {
-                    correctionTargetFlip = faceAngle + Mathf.Ceil((baseFlip - faceAngle) / 360f) * 360f;
-                    while (correctionTargetFlip < baseFlip) correctionTargetFlip += 360f;
-                    while (correctionTargetFlip < correctionStartFlipUnwrapped) correctionTargetFlip += 360f;
-                }
-                else
-                {
-                    correctionTargetFlip = faceAngle + Mathf.Floor((baseFlip - faceAngle) / 360f) * 360f;
-                    while (correctionTargetFlip > baseFlip) correctionTargetFlip -= 360f;
-                    while (correctionTargetFlip > correctionStartFlipUnwrapped) correctionTargetFlip -= 360f;
-                }
+                // The target was locked when the spin started. Never infer a new
+                // cycle from a landing-frame Rigidbody velocity or wrapped Euler.
+                correctionTargetFlip = plannedResultTargetFlip;
+            }
+            else
+            {
+                float predictedStop = correctionStartFlipUnwrapped + correctionStartVelocityDegrees.x * correctionDuration * .5f;
+                correctionTargetFlip = faceAngle + Mathf.Round((predictedStop - faceAngle) / 360f) * 360f;
             }
 
             if (body != null)
             {
-                body.angularVelocity = Vector3.zero;
                 body.isKinematic = true;
             }
+            deterministicSpinActive = false;
             plannedAngularVelocity = Vector3.zero;
         }
 
@@ -198,15 +230,11 @@ namespace DecisionDisc
         {
             if (coin == null) return;
             float t = Mathf.Clamp01(progress);
-            float t2 = t * t;
-            float t3 = t2 * t;
-            float h00 = 2f * t3 - 3f * t2 + 1f;
-            float h10 = t3 - 2f * t2 + t;
-            float h01 = -2f * t3 + 3f * t2;
-            float flip = h00 * correctionStartFlipUnwrapped
-                + h10 * correctionStartVelocityDegrees.x * correctionDuration
-                + h01 * correctionTargetFlip;
             float level = Mathf.SmoothStep(0f, 1f, t);
+            // Ease directly from the observed physics angle to the face-aligned
+            // target. Hermite velocity extrapolation could overshoot and then
+            // visibly jump back on the final frame.
+            float flip = Mathf.Lerp(correctionStartFlipUnwrapped, correctionTargetFlip, level);
             float yaw = Mathf.LerpAngle(correctionStartEuler.y, 0f, level);
             float roll = Mathf.LerpAngle(correctionStartEuler.z, 0f, level);
             ApplyKinematicRotation(Quaternion.Euler(flip, yaw, roll));
@@ -216,15 +244,21 @@ namespace DecisionDisc
         {
             if (body != null)
             {
-                body.angularVelocity = Vector3.zero;
                 body.isKinematic = true;
             }
             coin.transform.localRotation = localRotation;
             if (body != null)
             {
-                body.rotation = coin.transform.rotation;
                 body.Sleep();
             }
+        }
+
+        private static float EaseInOutQuad(float progress)
+        {
+            float p = Mathf.Clamp01(progress);
+            return p < .5f
+                ? 2f * p * p
+                : 1f - Mathf.Pow(-2f * p + 2f, 2f) * .5f;
         }
 
         private static float SignedDegrees(float degrees)
@@ -232,6 +266,29 @@ namespace DecisionDisc
             degrees %= 360f;
             if (degrees > 180f) degrees -= 360f;
             return degrees;
+        }
+
+        private static float FaceAlignedTarget(float startFlip, float direction, float turns, float faceAngle)
+        {
+            bool isNoFace = faceAngle > 90f;
+            int wholeTurns = Mathf.Clamp(Mathf.RoundToInt(turns), 1, 20);
+            // Reserve the same whole-turn budget for every disc. The NO side
+            // needs an additional half turn because it is the opposite face;
+            // this keeps YES/NO motion paired instead of relying on a landing
+            // correction to choose a different revolution count.
+            float requestedDegrees = wholeTurns * 360f + (isNoFace ? 180f : 0f);
+            float ideal = startFlip + direction * requestedDegrees;
+            int faceCycle = Mathf.RoundToInt((ideal - faceAngle) / 360f);
+            float target = faceAngle + faceCycle * 360f;
+            if (direction > 0f)
+            {
+                while (target <= startFlip) target += 360f;
+            }
+            else if (direction < 0f)
+            {
+                while (target >= startFlip) target -= 360f;
+            }
+            return target;
         }
 
         private static Mesh CreateCoinMesh(int segments, float radius, float thickness)
